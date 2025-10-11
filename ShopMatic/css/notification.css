@@ -1,0 +1,71 @@
+/* Notification */
+.shop-notifications {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.shop-notification {
+  background: #323232;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.4s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  pointer-events: auto;
+}
+
+.shop-notification.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.shop-notification.hide {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.shop-notification span {
+	color: #ffffff;
+	display: flex;
+}
+
+.shop-notification i.success {
+    margin: 0px 5px;
+    font-size: 15pt;
+    color: #348a34;
+}
+
+.shop-notification i.warning {
+    margin: 0px 5px;
+    font-size: 15pt;
+    color: yellow;
+}
+
+.shop-notification i.fail {
+    margin: 0px 5px;
+    font-size: 15pt;
+    color: red;
+}
+
+.shop-notification a {
+	color: #fce000;
+    margin-left: 6px;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 16px;
+    letter-spacing: .25px;
+    cursor: pointer;
+}
+
+.shop-notification a:hover {
+	color: #c5b957;
+}
