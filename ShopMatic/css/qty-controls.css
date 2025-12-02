@@ -1,0 +1,68 @@
+/* ========================================================================== */
+/* QUANTITY CONTROLS — responsive & usable */
+/* ========================================================================== */
+ .qty-controls {
+     display: inline-flex;
+     align-items: center;
+     border-radius: 8px;
+     border: 1px solid #8080802b;
+     background: rgba(223, 211, 211, 0.42);
+     overflow: hidden;
+     gap: 4px;
+     box-sizing: border-box;
+     padding: 2px;
+     width: fit-content;
+     height: fit-content;
+}
+
+ .qty-controls.mobile {
+	 margin: 10px 0;
+	}
+
+ .qty-controls.mobile .qty-btn {
+	 width: 32px;
+	 height: 32px;
+	 padding: 18px;
+	}
+
+ .qty-btn {
+     background: var(--qty-btn-bg);
+     border: none;
+     flex: 0 0 auto;
+     width: clamp(36px, 10%, 48px);
+     height: clamp(36px, 10%, 48px);
+     font-size: clamp(16px, 1.2vw, 18px);
+     font-weight: 700;
+     color: var(--qty-btn-color);
+     cursor: pointer;
+     transition: var(--qty-btn-transition);
+     border-radius: var(--qty-btn-radius);
+     display: inline-flex;
+     align-items: center;
+     justify-content: center;
+     background-clip: padding-box;
+}
+ .qty-btn:disabled {
+     cursor: not-allowed;
+     color: #64696d;
+     background: rgb(0 0 0 / 24%);
+     opacity: var(--qty-btn-disabled-opacity);
+     pointer-events: none;
+}
+ .qty-btn:not(:disabled):hover {
+     background: rgba(0,0,0,0.05);
+     color: var(--text-primary);
+}
+ .qty-input {
+     flex: 1 1 auto;
+     min-width: 40px;
+     width: 60px;
+     max-width: 80px;
+     text-align: center;
+     font-size: clamp(14px, 1.1vw, 16px);
+     color: var(--text-primary);
+     background: transparent;
+     border: none;
+     padding: 4px 2px;
+     box-sizing: border-box;
+}

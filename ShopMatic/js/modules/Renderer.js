@@ -19,10 +19,12 @@ export class Renderer {
    * @param {Object|null} options.productService
    * @param {Object|null} options.favorites
    */
-  constructor({ foxEngine = null, productService = null, favorites = null } = {}) {
-    this.foxEngine = foxEngine;
+  constructor({ shopMatic = null, productService = null, favorites = null } = {}) {
+	this.shopMatic = shopMatic;
+    this.foxEngine = shopMatic.foxEngine;
     this.productService = productService;
     this.favorites = favorites;
+	this.templateRenderer = this.foxEngine.templateRenderer;
   }
 
   // -----------------------
@@ -119,16 +121,7 @@ export class Renderer {
    * @returns {Promise<string>}
    */
   async renderTemplate(tplName, data = {}) {
-    if (!this.foxEngine || !this.foxEngine.templateCache) return '';
-    const tpl = this.foxEngine.templateCache[tplName];
-    if (!tpl) return '';
-    try {
-      // replaceTextInTemplate может быть асинхронным
-      return await this.foxEngine.replaceTextInTemplate(tpl, data);
-    } catch (e) {
-      try { this.foxEngine?.log?.(`Renderer.renderTemplate ${tplName} error: ${e}`, 'ERROR'); } catch (_) {}
-      return '';
-    }
+	return this.templateRenderer.renderTemplate(tplName, data);
   }
 
   /**
@@ -300,50 +293,114 @@ export class Renderer {
     return node;
   }
 
-  /**
-   * Добавляет на карточку зоны для наведения и точки для переключения изображений
-   * @param {Element} node
-   * @param {string[]} imgArray
-   */
-  _attachImageGallery(node, imgArray = []) {
-    if (!node || !Array.isArray(imgArray) || imgArray.length <= 1) return;
-    const media = node.querySelector && node.querySelector('.card__media');
-    if (!media) return;
-    media.classList.add('multi-image');
-    const overlay = document.createElement('div');
-    overlay.className = 'card__image-overlay';
-    const dots = document.createElement('div');
-    dots.className = 'card__image-dots';
-    const imgEl = media.querySelector('img');
-    let activeIndex = 0;
-    const updateImage = (index) => {
-      if (index < 0 || index >= imgArray.length) return;
-      activeIndex = index;
-      if (imgEl) {
-        imgEl.classList.add('fade');
-        // небольшая задержка для плавности (сохраняем прежнюю логику)
-        setTimeout(() => {
-          imgEl.src = imgArray[index];
-          imgEl.onload = () => imgEl.classList.remove('fade');
-        }, 120);
+_attachImageGallery(node, imgArray = []) {
+  if (!node || !Array.isArray(imgArray) || imgArray.length <= 1) return;
+
+  const media = node.querySelector('.card__media');
+  if (!media) return;
+
+  media.classList.add('multi-image');
+  const overlay = document.createElement('div');
+  overlay.className = 'card__image-overlay';
+  const dots = document.createElement('div');
+  dots.className = 'card__image-dots';
+  const imgEl = media.querySelector('img');
+
+  let activeIndex = 0;
+  let touchStartX = 0;
+  let touchStartTime = 0;
+  let touchMoveX = 0;
+  let isSwiping = false;
+  let isMobile = this.shopMatic.deviceUtil.isTouchDevice;
+
+  // Функция для обновления изображения
+  const updateImage = (index) => {
+    if (index < 0 || index >= imgArray.length) return;
+    activeIndex = index;
+    if (imgEl) {
+      imgEl.classList.add('fade');
+      imgEl.style.transform = 'translateX(0)'; // Reset position to center
+      setTimeout(() => {
+        imgEl.src = imgArray[index];
+        imgEl.onload = () => imgEl.classList.remove('fade');
+      }, 120);
+    }
+    dots.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === index));
+  };
+
+  // Обработчик начала свайпа
+  const handleSwipeStart = (e) => {
+    touchStartX = e.touches[0].clientX;
+    touchStartTime = Date.now();
+    isSwiping = true;
+    imgEl.style.transition = 'none'; // Disable transition for smooth dragging
+  };
+
+  // Обработчик движения свайпа
+  const handleSwipeMove = (e) => {
+    if (!isSwiping) return;
+    const touchX = e.changedTouches[0].clientX;
+    touchMoveX = touchX - touchStartX;
+    imgEl.style.transform = `translateX(${touchMoveX}px)`;  // Плавное движение изображения
+
+    e.preventDefault();  // Предотвращаем скроллинг
+  };
+
+  // Обработчик завершения свайпа
+  const handleSwipeEnd = (e) => {
+    if (!isSwiping) return;
+
+    const touchEndX = e.changedTouches[0].clientX;
+    const deltaX = touchStartX - touchEndX;
+    const swipeDuration = Date.now() - touchStartTime;
+
+    isSwiping = false;
+    imgEl.style.transition = 'transform 0.3s ease';
+    imgEl.style.transform = 'translateX(0)'; // Reset position to center
+
+    // Если свайп был достаточно длинным, переключаем изображения
+    if (Math.abs(deltaX) > 50 && swipeDuration < 500) {
+      if (deltaX > 0 && activeIndex < imgArray.length - 1) {
+        updateImage(activeIndex + 1); // Свайп влево
+      } else if (deltaX < 0 && activeIndex > 0) {
+        updateImage(activeIndex - 1); // Свайп вправо
       }
-      dots.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === index));
-    };
+    }
+  };
+
+  // Функция для создания точек и зон
+  const createDotsAndZones = () => {
     imgArray.forEach((_, i) => {
       const zone = document.createElement('div');
       zone.className = 'card__image-zone';
       zone.style.setProperty('--zone-index', i);
       zone.addEventListener('mouseenter', () => updateImage(i));
       overlay.appendChild(zone);
+
       const dot = document.createElement('span');
       dot.className = 'dot';
       if (i === 0) dot.classList.add('active');
       dot.addEventListener('mouseenter', () => updateImage(i));
       dots.appendChild(dot);
     });
-    media.appendChild(overlay);
-    media.after(dots);
+  };
+
+  // Обработчики событий для мобильных устройств
+  if (isMobile) {
+    media.addEventListener('touchstart', handleSwipeStart);
+    media.addEventListener('touchmove', handleSwipeMove);
+    media.addEventListener('touchend', handleSwipeEnd);
   }
+
+  // Добавляем точки и зоны в DOM
+  createDotsAndZones();
+
+  media.appendChild(overlay);
+  media.after(dots);
+}
+
+
+
 
   // -----------------------
   // Vertical list rendering (animated)

@@ -1,0 +1,265 @@
+/* === Polaris Universal Form Root === */
+:root {
+  --primary-color: #4d8dff;
+  --secondary-color: #f5f5f5;
+  --error-color: #d90000;
+  --button-radius: 10px;
+  --input-border-color: #d9d9d9;
+  --background-color: #fff;
+  --box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Общие стили */
+.form-root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: var(--background-color);
+  border: 1px solid #e8e8e8;
+  box-shadow: var(--box-shadow);
+  font-family: var(--font-family);
+  animation: polarisFadeIn 0.22s ease-out;
+}
+
+/* Заголовок формы */
+.form-root .form-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+  letter-spacing: -0.2px;
+}
+
+/* Поля ввода */
+.form-root .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Лейбл */
+.form-root .form-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+/* Инпуты */
+.form-root input {
+    padding-left: 10px;
+    width: 100%;
+    height: 52px;
+    padding-right: 16px;
+    font-size: 15px;
+    font-family: var(--font-sans);
+    color: var(--text);
+    border-radius: 12px;
+    border: 1px solid rgba(15, 23, 36, 0.14);
+    background: linear-gradient(180deg, #ffffff, #fbfdff);
+    outline: none;
+    transition: background 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-root input:hover {
+  background: #f5f5f5;
+}
+
+.form-root input:focus {
+  background: var(--background-color);
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(77, 141, 255, 0.32);
+}
+
+/* Ошибки */
+.form-root .form-error {
+  padding: 4px 0 0;
+  color: var(--error-color);
+  font-size: 13px;
+  animation: polarisSlideDown 0.18s ease;
+}
+
+/* Контейнер для кнопок */
+.form-root .form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+/* Основная кнопка */
+.form-root .btn-primary {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--button-radius);
+  background: var(--primary-color);
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease, box-shadow 0.2s;
+}
+
+.form-root .btn-primary:hover {
+  background: #1cc148;
+}
+
+.form-root .btn-primary:active {
+  transform: scale(0.97);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Вторичная кнопка */
+.form-root .btn-secondary {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid #d0d0d0;
+  border-radius: var(--button-radius);
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.form-root .btn-secondary:hover {
+  background: #ed5050;
+}
+
+/* Анимации */
+@keyframes polarisFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes polarisSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Стили для action buttons в item-card --- */
+.item-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #ececec;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.item-card .itemField {
+	
+width: max-content;
+}
+
+.item-card .fieldPlaceholder {
+	
+color: grey;
+	
+font-size: small;
+}
+
+.item-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.06);
+}
+
+/* Выделенная карточка */
+.item-card.selected {
+  border-color: rgba(34, 197, 94, 0.18);
+  box-shadow: 0 6px 18px rgba(34, 197, 94, 0.06);
+  background: linear-gradient(180deg, rgba(245, 255, 247, 1), #ffffff);
+}
+
+/* Контейнер кнопок */
+.item-card .item-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Базовая кнопка */
+.item-card .action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--button-radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.item-card .action-btn.icon-only {
+  padding: 8px;
+  width: 51px;
+  height: 44px;
+  border: 1px solid;
+  justify-content: center;
+}
+
+.item-card .action-btn .fa,
+.item-card .action-btn .fas,
+.item-card .action-btn .far {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Hover состояние */
+.item-card .action-btn:hover {
+  background: #f5f7fb;
+  transform: translateY(-1px);
+}
+
+/* Select кнопка */
+.item-card .action-btn.select-btn {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(77, 141, 255, 0.06);
+  color: #1656d6;
+}
+
+/* Визуальное состояние при выборе */
+.item-card .action-btn.select-btn.selected,
+.item-card.selected .action-btn.select-btn {
+  background: linear-gradient(180deg, #22c55e33, #16a34a22);
+  color: #0b6b2d;
+  border-color: rgba(34, 197, 94, 0.2);
+  box-shadow: 0 4px 10px rgba(16, 24, 40, 0.04);
+}
+
+/* Кнопка редактирования */
+.item-card .action-btn.edit-btn {
+  color: #0f69ff;
+}
+.item-card .action-btn.edit-btn:hover {
+  background: #eef6ff;
+}
+
+/* Кнопка удаления */
+.item-card .action-btn.delete-btn {
+  color: #b02828;
+}
+.item-card .action-btn.delete-btn:hover {
+  background: #fff5f5;
+}
+
+/* Скрыть текстовую метку кнопки на малых экранах */
+.item-card .action-btn .btn-label {
+  display: inline-block;
+}
+@media (max-width: 520px) {
+  .item-card .action-btn .btn-label { display: none; }
+}
+
+/* Плавная анимация для изменения иконки */
+.item-card .action-btn .fa {
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}

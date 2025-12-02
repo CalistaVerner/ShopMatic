@@ -1,15 +1,16 @@
+import { EventBus } from "./modules/EventBus.js";
 import { Card } from './modules/Card.js';
 import { ProductService } from './modules/ProductService.js';
 import { StorageService } from './modules/StorageService.js';
 import { Notifications } from './modules/Notifications.js';
 import { Renderer } from './modules/Renderer.js';
-import { CartModule } from './modules/CartModule.js';
+import { CartModule } from './modules/Cart/CartModule.js';
 import { FavoritesModule } from './modules/FavoritesModule.js';
 import { WishlistModule } from './modules/WishlistModule.js';
 import { ProductPage } from './modules/ProductPage.js';
 import { ViewedItemsModule } from './modules/ViewedItemsModule.js';
-import { Catalog } from './modules/Catalog.js';
-import { CheckoutPage } from './modules/CheckoutPage.js';
+import { Catalog } from './modules/Catalog/CatalogController.js';
+import { CheckoutPage } from './modules/Checkout/CheckoutController.js';
 
 /**
  * ShopMatic orchestrates all modules of the shop and exposes a high level API
@@ -41,6 +42,7 @@ export class ShopMatic {
       miniCartTotalId: 'miniCartTotal',
       miniCartListId: 'miniCart',
       headerCartNumId: 'cartNum',
+	  mobileCartNumId: 'mobileCartNum',
       miniCartHeaderTitleId: 'miniCartHeaderTitle',
       productsCountId: 'productsCount',
       storageKey: 'gribkov_cart_v1',
@@ -49,13 +51,15 @@ export class ShopMatic {
       debug: false
     }, opts);
     // Core modules
+	this.eventBus = new EventBus();
+	this.deviceUtil = foxEngine.deviceUtil;
     this.productService = new ProductService(this.foxEngine);
     this.card = new Card(this);
     this.storage = new StorageService(this, { storageKey: this.opts.storageKey, favStorageKey: this.opts.favStorageKey });
     this.notifications = new Notifications();
     // Favourites with central sync
     this.favorites = new FavoritesModule({ storage: this.storage, opts: { sync: false } });
-    this.renderer = new Renderer({ foxEngine: this.foxEngine, productService: this.productService, favorites: this.favorites });
+    this.renderer = new Renderer({ shopMatic: this, productService: this.productService, favorites: this.favorites });
     this.cart = new CartModule({
       storage: this.storage,
       productService: this.productService,
@@ -86,7 +90,6 @@ export class ShopMatic {
       searchBtnId: this.opts.searchBtnId,
       productsCountId: this.opts.productsCountId
     });
-	
 	this.checkoutPage = new CheckoutPage(this.cart);
     // Subscription handle for favourites updates
     this._favsUnsub = null;
@@ -120,17 +123,22 @@ export class ShopMatic {
     const miniCartTotalEl = document.getElementById(this.opts.miniCartTotalId);
     const miniCartListEl = document.getElementById(this.opts.miniCartListId);
     const headerCartNumEl = document.getElementById(this.opts.headerCartNumId);
+	const mobileCartNumEl = document.getElementById(this.opts.mobileCartNumId);
     const miniCartHeaderTitleEl = document.getElementById(this.opts.miniCartHeaderTitleId);
+
     // Pass references to cart module
     try {
+		
       this.cart.setDomRefs({
         headerCartNum: headerCartNumEl,
+		mobileCartNum: mobileCartNumEl,
         miniCartList: miniCartListEl,
         miniCartHeaderTitle: miniCartHeaderTitleEl,
         cartGrid: cartGridEl,
         cartCountInline: cartCountInlineEl,
         cartTotal: cartTotalEl,
-        miniCartTotal: miniCartTotalEl
+        miniCartTotal: miniCartTotalEl,
+		cartHeader: document.querySelector('.cart-header')
       });
     } catch (err) {
       console.warn('cart.setDomRefs failed', err);
@@ -211,10 +219,14 @@ export class ShopMatic {
   _updateWishUI() {
     try {
       const wishEl = document.getElementById('wishNum');
+	  const mobileWishEl = document.getElementById('mobileFavorites');
       if (!wishEl) return;
       const count = (this.favorites && typeof this.favorites.getCount === 'function') ? this.favorites.getCount() : 0;
       wishEl.style.display = count > 0 ? 'inline-flex' : 'none';
       wishEl.textContent = String(count);
+
+      mobileWishEl.style.display = count > 0 ? 'inline-flex' : 'none';
+      mobileWishEl.textContent = String(count);
     } catch (e) {
       console.warn('_updateWishUI failed', e);
     }
@@ -358,6 +370,14 @@ export class ShopMatic {
     this.cart.loadFromStorage();
     this.cart.updateCartUI();
     this._syncAllCardsControls();
+  }
+
+  /**
+   * Wrapper around Catalog.loadCatalog for compatibility with legacy code.
+   * Delegates to the Catalog instance.
+   */
+  async loadCatalog(args = {}) {
+    return this.catalog.loadCatalog(args);
   }
 
   /**

@@ -2,16 +2,16 @@
    Shopmatic basic styles
    Author: Calista Verner
    Part of Shopmatic
-   Version: 1.0.0
-   Date: 2025-10-24
+   Version: 1.0.1
    ============================================================================ */
 
-:root{
+:root {
   --card-bg: #ffffff;
   --card-border: #e8edf3;
   --muted: #6b7280;
+  --muted-2: #9aa0a6;
   --text: #0f1724;
-  --accent: #06b6b4;            /* teal-ish */
+  --accent: #06b6b4;
   --accent-dark: #05918f;
   --danger: #ef4444;
   --shadow-soft: 0 8px 30px rgba(16,24,40,0.06);
@@ -21,78 +21,127 @@
   --transition-fast: 220ms cubic-bezier(.2,.9,.3,1);
   --transition-medium: 380ms cubic-bezier(.22,.61,.36,1);
   --glass: rgba(255,255,255,0.7);
-  --control-primary: #fce000;
-  --control-primary-hover: #f9d400;
-  --muted-2: #9aa0a6;
+  --control-primary: #ff8000;
+  --control-primary-hover: #ffab10;
   --bg-soft: #fbfdff;
+  --price-term: #006933;
 }
 
-/* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  :root { --transition-fast: 0ms; --transition-medium: 0ms; }
+  :root {
+    --transition-fast: 0ms;
+    --transition-medium: 0ms;
+  }
 }
 
-/* ENTER / LEAVE helpers so JS can toggle classes */
+/* wishlist card enter/leave */
+
 .wish-card--enter {
   animation: wish-card-enter var(--transition-medium) both;
 }
+
 @keyframes wish-card-enter {
-  from { opacity: 0; transform: translateY(8px) scale(0.995); filter: blur(6px); }
-  60% { opacity: 0.9; transform: translateY(-4px) scale(1.01); filter: blur(0); }
-  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+    filter: blur(6px);
+  }
+  60% {
+    opacity: 0.9;
+    transform: translateY(-4px) scale(1.01);
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
 }
 
-/* graceful removal fallback */
 .wish-card--remove-css {
   animation: wish-card-remove var(--transition-medium) forwards;
 }
+
 @keyframes wish-card-remove {
-  0%   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-  35%  { opacity: 0.9; transform: translateY(-8px) scale(0.99); filter: blur(1px); }
-  100% { opacity: 0; transform: translateY(-26px) translateX(12px) scale(0.88) rotate(-1.6deg); filter: blur(6px); }
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  35% {
+    opacity: 0.9;
+    transform: translateY(-8px) scale(0.99);
+    filter: blur(1px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-26px) translateX(12px) scale(0.88) rotate(-1.6deg);
+    filter: blur(6px);
+  }
 }
+
+.wish-card--noanim {
+  transition: none !important;
+  animation: none !important;
+  transform: none !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+/* summary / layout */
 
 .blockSummary {
-    flex: 0 0 340px;
-    background: var(--bg-secondary);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-soft);
-    padding: 22px;
-    position: sticky;
-    top: 24px;
-    transition: all 0.3s ease;
+  flex: 0 0 340px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 22px;
+  position: sticky;
+  top: 24px;
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
-/* ---------- MEDIA ---------- */
+/* media */
 
-/* Use aspect-ratio where available */
-
-/* small image hover zoom */
 .card__media img:hover,
 .wish-media img:hover {
   transform: scale(1.02);
 }
 
+/* buttons & states */
+
 .btn:hover {
-    background: #ffa552;
-    box-shadow: 0 0 6px rgba(255, 140, 0, 0.55), 0 0 18px rgba(255, 115, 0, 0.35);
-    transform: translateY(-1px);
+  background: #ffa552;
+  box-shadow:
+    0 0 6px rgba(255,140,0,0.55),
+    0 0 18px rgba(255,115,0,0.35);
+  transform: translateY(-1px);
 }
 
 .btn:active {
-    transform: translateY(0);
-    background: #e86400;
-    box-shadow: 0 0 4px rgba(255, 115, 0, 0.45);
+  transform: translateY(0);
+  background: #e86400;
+  box-shadow: 0 0 4px rgba(255,115,0,0.45);
 }
 
-/* ---------- BODY ---------- */
+.btn[disabled],
+.fav-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* card body / text */
+
 .card__body,
 .wish-card .wish-body {
   padding: 14px;
   z-index: 2;
 }
 
-/* ---------- TITLE & META ---------- */
 .card__meta,
 .wish-card .wish-desc {
   font-size: 13px;
@@ -104,7 +153,7 @@
   overflow: hidden;
 }
 
-/* ---------- PRICE BLOCK ---------- */
+/* price / labels */
 
 .badge {
   font-size: 12px;
@@ -116,16 +165,34 @@
 }
 
 .price-old {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--muted-2);
   text-decoration: line-through;
 }
+
 .stock {
   font-size: 12px;
   color: var(--muted);
 }
 
-/* ---------- CONTROLS ---------- */
+.price-submain {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--price-term);
+  font-family: 'FSElliotPro';
+  margin: 0px 10px;
+}
+
+.price-main {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--price-term);
+  font-family: 'FSElliotPro-Heavy';
+  margin: 0px 10px;
+}
+
+/* controls */
+
 .card-controls,
 .wish-card .wish-actions,
 .card__controls {
@@ -136,23 +203,8 @@
   flex-wrap: wrap;
 }
 
-.price-submain {
-	font-size: 15px;
-    font-weight: 700;
-    color: var(--price-term);
-    font-family: 'FSElliotPro';
-    margin: 10px;
-}
+/* qty */
 
-.price-main {
-	font-size: 22px;
-	font-weight: 700;
-	color: var(--price-term);
-	font-family: 'FSElliotPro-Heavy';
-	margin: 10px;
-}
-
-/* qty control */
 .qty {
   display: inline-flex;
   align-items: center;
@@ -162,6 +214,7 @@
   border: 1px solid rgba(15,23,36,0.06);
   background: #fff;
 }
+
 .qty button {
   display: inline-flex;
   align-items: center;
@@ -175,7 +228,12 @@
   color: var(--text);
   transition: color var(--transition-fast), transform 120ms ease;
 }
-.qty button:hover { color: var(--accent); transform: translateY(-2px); }
+
+.qty button:hover {
+  color: var(--accent);
+  transform: translateY(-2px);
+}
+
 .qty input[type="number"] {
   width: 64px;
   padding: 8px 6px;
@@ -187,52 +245,96 @@
 }
 
 /* primary add to cart */
- .addToCart.btn {
-  background: linear-gradient(90deg,var(--control-primary),var(--control-primary-hover));
-  color: #111;
-  height: 56px;
-  border-radius: 12px;
-  padding: 0 18px;
-  font-size: 15px;
-}
 
-.card-controls .addToCart.btn:hover,
-.addToCart:hover {
-  background: linear-gradient(90deg,var(--control-primary),var(--control-primary-hover));
+.addToCart.btn {
+  background: var(--control-primary);
   color: #ffffff;
   height: 56px;
   border-radius: 12px;
   padding: 0 18px;
   font-size: 15px;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast),
+    transform var(--transition-fast);
 }
 
-/* disabled */
-.btn[disabled],
-.fav-btn[disabled] { opacity: 0.6; cursor: not-allowed; pointer-events: none; }
+.addToCart.btn:hover {
+  box-shadow:
+    0 0 6px rgba(255,140,0,0.55),
+    0 0 18px rgba(255,115,0,0.35);
+  transform: translateY(-1px);
+  background: var(--control-primary-hover);
+  transition: 0.2s;
+}
 
-/* ---------- DATASHEET ---------- */
-.datasheet { margin-top: 12px; color: var(--muted); font-size: 13px; }
+/* datasheet */
 
-/* ---------- NOTIFICATIONS ---------- */
+.datasheet {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
 
-/* ---------- RESPONSIVE ---------- */
+/* responsive */
+
 @media (max-width: 880px) {
-  .card, .wish-card { max-width: 100%; border-radius: 12px; }
-  .price-block { min-width: 96px; align-items: flex-end; gap: 6px; }
-  .card__media img, .wish-media img { max-height: 180px; }
-  .card__actions-row { flex-direction: column; gap: 10px; align-items: stretch; }
+  .card,
+  .wish-card {
+    max-width: 100%;
+    border-radius: 12px;
+  }
+
+  .price-block {
+    min-width: 96px;
+    gap: 6px;
+  }
+
+  .card__media img,
+  .wish-media img {
+    max-height: 180px;
+  }
+
+  .card__actions-row {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
 }
 
+ .page-header {
+     margin-bottom: 24px;
+     text-align: left;
+}
+ .page-header > .page-title {
+    font-size: 18pt;
+    font-weight: 700;
+    width: fit-content;
+    margin-bottom: -5px;
+    line-height: 1;
+    border-bottom: 3px solid #808080;
+}
+ .page-header > .page-subtitle {
+    color: var(--text-muted);
+}
 
-/* If JS wants to force-instant hide (no animation) */
-.wish-card--noanim { transition: none !important; animation: none !important; transform:none !important; opacity:0 !important; height:0 !important; padding:0 !important; margin:0 !important; overflow:hidden; }
+@media (max-width: 480px) {
+	.page-header > .page-subtitle {
+		 font-size: 9pt;
+	}
+	
+	.page-header > .page-title {
+		font-size: 15pt;
+	}
+}
+
+/* misc */
 
 .catalog-empty {
-	padding: 30px;
-	text-align: center;
-	width: 100%;
-	border: 1px dotted;
-	border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  width: 100%;
+  border: 1px dotted;
+  border-radius: 10px;
 }
-
-/* End of polished styles */

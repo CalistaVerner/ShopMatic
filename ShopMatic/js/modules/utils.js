@@ -38,6 +38,23 @@ export function computeDiscountPercent(p) {
   const percent = Math.round(((p.oldPrice - p.price) / p.oldPrice) * 100);
   return Math.max(0, percent);
 }
+
+export function deepEqual(a, b) {
+  try {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const k of aKeys) {
+      if (String(a[k]) !== String(b[k])) return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * Форматирует цену с учетом валюты.
  * @param {number} amount Сумма, которую нужно отформатировать.

@@ -2267,7 +2267,7 @@ var Renderer = class {
   }
 };
 
-// ShopMatic/js/modules/MiniCart.js
+// ShopMatic/js/modules/Cart/MiniCart.js
 var MiniCart = class _MiniCart {
   /**
    * Общие текстовые сообщения и классы для UI
@@ -2657,22 +2657,36 @@ var MiniCart = class _MiniCart {
   }
 };
 
-// ShopMatic/js/modules/CartModule.js
-var CartModule = class {
-  static UI_MESSAGES = Object.freeze({
-    NOT_ENOUGH_STOCK: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u0442\u043E\u0432\u0430\u0440\u0430 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435.",
-    ONLY_X_LEFT: "\u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438 \u0442\u043E\u043B\u044C\u043A\u043E {stock} \u0448\u0442.",
-    ADDED_TO_CART_HTML: '\u0422\u043E\u0432\u0430\u0440 ({title}) x{qty} \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443 <a href="#page/cart">\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443</a>',
-    ADDED_TO_CART_PLAIN: '\u0422\u043E\u0432\u0430\u0440 "{title}" x{qty} \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443.',
-    FAVORITES_UNAVAILABLE: "\u041C\u043E\u0434\u0443\u043B\u044C \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.",
-    INSUFFICIENT_STOCK_ADD: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435. \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E: {max}.",
-    INSUFFICIENT_STOCK_CHANGEQTY: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435. \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E: {stock}.",
-    PRODUCT_OUT_OF_STOCK: "\u0422\u043E\u0432\u0430\u0440 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435.",
-    REACHED_MAX_STOCK_LIMIT_NOTIFY: "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u043B\u0438\u043C\u0438\u0442 \u043F\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0443.",
-    PRODUCT_LIMIT_DEFAULT: "\u0423 \u0432\u0430\u0441 \u0443\u0436\u0435 \u043C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0435",
-    PRODUCT_LIMIT_REACHED: "\u0412\u044B \u0434\u043E\u0441\u0442\u0438\u0433\u043B\u0438 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0430 \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430",
-    NO_STOCK_TEXT: "\u0422\u043E\u0432\u0430\u0440\u0430 \u043D\u0435\u0442 \u0432 \u043D\u0430\u043B\u0438\u0447\u0438\u0438"
-  });
+// ShopMatic/js/modules/Cart/CartBase.js
+var CartBase = class {
+  static UI_MESSAGES = Object.freeze({});
+  constructor({ storage, productService, notifications, favorites = null, opts = {} }) {
+    this.storage = storage;
+    this.productService = productService;
+    this.notifications = notifications;
+    this.favorites = favorites;
+    this.opts = Object.assign(
+      {
+        saveDebounceMs: 200,
+        debug: false,
+        parallelProductFetch: true,
+        productFetchBatchSize: 20,
+        stockCacheTTL: 5e3
+      },
+      opts || {}
+    );
+    this.cart = [];
+    this._idIndex = /* @__PURE__ */ new Map();
+    this._pendingChangedIds = /* @__PURE__ */ new Set();
+    this._saveTimeout = null;
+    this._rowsSyncing = /* @__PURE__ */ new WeakSet();
+    this._changeSourceMap = /* @__PURE__ */ new Map();
+    this._cssEscape = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape : (s) => String(s).replace(/["\\]/g, "\\$&");
+  }
+  // --- logging / i18n ------------------------------------------------------
+  _logError(...args) {
+    if (this.opts.debug) console.error("[CartModule]", ...args);
+  }
   _msg(key, vars = {}) {
     const pool = this.constructor && this.constructor.UI_MESSAGES || {};
     const tpl = pool[key] ?? "";
@@ -2681,44 +2695,13 @@ var CartModule = class {
       (m, k) => Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m
     );
   }
-  constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
-    this.storage = storage;
-    this.productService = productService;
-    this.renderer = renderer;
-    this.notifications = notifications;
-    this.favorites = favorites;
-    this.opts = Object.assign({
-      saveDebounceMs: 200,
-      debug: false,
-      parallelProductFetch: true,
-      productFetchBatchSize: 20,
-      stockCacheTTL: 5e3
-    }, opts || {});
-    this.cart = [];
-    this._idIndex = /* @__PURE__ */ new Map();
-    this._pendingChangedIds = /* @__PURE__ */ new Set();
-    this._saveTimeout = null;
-    this.headerCartNum = null;
-    this.cartGrid = null;
-    this.cartCountInline = null;
-    this.cartTotal = null;
-    this.miniCartTotal = null;
-    this.miniCart = new MiniCart({ renderer: this.renderer, notifications: this.notifications, opts: opts.miniCart || {} });
-    this._gridHandler = null;
-    this._gridInputHandler = null;
-    this._gridListenersAttachedTo = null;
-    this._rowsSyncing = /* @__PURE__ */ new WeakSet();
-    this._changeSourceMap = /* @__PURE__ */ new Map();
-    this._cssEscape = typeof CSS !== "undefined" && typeof CSS.escape === "function" ? CSS.escape : (s) => String(s).replace(/["\\]/g, "\\$&");
-  }
-  _logError(...args) {
-    if (this.opts.debug) console.error("[CartModule]", ...args);
-  }
-  // --- Id normalization & index management (incremental) ---
+  // --- Id normalization & index management ---------------------------------
   _normalizeId(id) {
     if (id === void 0 || id === null) return "";
     if (typeof id === "object") {
-      return String(id.id ?? id.name ?? id.productId ?? id.cartId ?? id.itemId ?? "").trim();
+      return String(
+        id.id ?? id.name ?? id.productId ?? id.cartId ?? id.itemId ?? ""
+      ).trim();
     }
     return String(id).trim();
   }
@@ -2772,7 +2755,8 @@ var CartModule = class {
     const sid = this._normalizeIdKey(id);
     if (!sid) return -1;
     const idx = this._idIndex.get(sid);
-    if (typeof idx === "number" && this.cart[idx] && this._normalizeIdKey(this.cart[idx].name) === sid) return idx;
+    if (typeof idx === "number" && this.cart[idx] && this._normalizeIdKey(this.cart[idx].name) === sid)
+      return idx;
     for (let i = 0; i < this.cart.length; i++) {
       if (this._normalizeIdKey(this.cart[i].name) === sid) {
         this._rebuildIndex();
@@ -2791,7 +2775,10 @@ var CartModule = class {
   }
   _formatPrice(value) {
     try {
-      return Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB" }).format(Number(value || 0));
+      return Intl.NumberFormat("ru-RU", {
+        style: "currency",
+        currency: "RUB"
+      }).format(Number(value || 0));
     } catch (e) {
       return String(value || "0");
     }
@@ -2817,17 +2804,30 @@ var CartModule = class {
   }
   _emitUpdateEvent() {
     try {
-      const totalCount = this.cart.reduce((s, it) => s + Number(it.qty || 0), 0);
-      const totalSum = this.cart.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 0), 0);
+      const totalCount = this.cart.reduce(
+        (s, it) => s + Number(it.qty || 0),
+        0
+      );
+      const totalSum = this.cart.reduce(
+        (s, it) => s + Number(it.price || 0) * Number(it.qty || 0),
+        0
+      );
       const changedIds = Array.from(this._pendingChangedIds);
       this._pendingChangedIds.clear();
-      const ev = new CustomEvent("cart:updated", { detail: { cart: this.cart.slice(), totalCount, totalSum, changedIds } });
+      const ev = new CustomEvent("cart:updated", {
+        detail: {
+          cart: this.cart.slice(),
+          totalCount,
+          totalSum,
+          changedIds
+        }
+      });
       window.dispatchEvent(ev);
     } catch (e) {
       this._logError("emitUpdateEvent failed", e);
     }
   }
-  // --- product resolution helpers (handles sync or promise) ---
+  // --- product resolution helpers -----------------------------------------
   _isThenable(v) {
     return v && typeof v.then === "function";
   }
@@ -2858,7 +2858,20 @@ var CartModule = class {
     }
     return item;
   }
-  // --- storage load ---
+  _normalizeCartItemFromProduct(prod, qty = 1) {
+    return {
+      name: this._normalizeId(
+        prod.name ?? prod.id ?? prod.title ?? prod.fullname ?? prod.productId ?? ""
+      ),
+      fullname: prod.fullname ?? prod.title ?? prod.name ?? prod.productName ?? "",
+      price: Number(prod.price || 0),
+      qty: Number(qty || 1),
+      picture: prod.picture || prod.image || "",
+      stock: Number(prod.stock || 0),
+      specs: prod.specs || {}
+    };
+  }
+  // --- storage load --------------------------------------------------------
   async loadFromStorage() {
     let raw = [];
     try {
@@ -2869,7 +2882,9 @@ var CartModule = class {
     }
     this.cart = (Array.isArray(raw) ? raw : []).map((entry) => {
       if (!entry) return null;
-      const name = this._normalizeId(entry.name ?? entry.id ?? entry.title ?? entry.fullname ?? entry.productId ?? entry.cartId ?? "");
+      const name = this._normalizeId(
+        entry.name ?? entry.id ?? entry.title ?? entry.fullname ?? entry.productId ?? entry.cartId ?? ""
+      );
       let qty = Number(entry.qty ?? entry.quantity ?? 1);
       if (!Number.isFinite(qty) || qty < 1) qty = 1;
       let syncProd = null;
@@ -2897,31 +2912,8 @@ var CartModule = class {
     this._dedupeCart();
     this._rebuildIndex();
     for (const i of this.cart) this._noteChangedId(i.name);
-    return this.updateCartUI();
   }
-  _normalizeCartItemFromProduct(prod, qty = 1) {
-    return {
-      name: this._normalizeId(prod.name ?? prod.id ?? prod.title ?? prod.fullname ?? prod.productId ?? ""),
-      fullname: prod.fullname ?? prod.title ?? prod.name ?? prod.productName ?? "",
-      price: Number(prod.price || 0),
-      qty: Number(qty || 1),
-      picture: prod.picture || prod.image || "",
-      stock: Number(prod.stock || 0),
-      specs: prod.specs || {}
-    };
-  }
-  setDomRefs({ headerCartNum, miniCartList, miniCartHeaderTitle, cartGrid, cartCountInline, cartTotal, miniCartTotal } = {}) {
-    this.headerCartNum = headerCartNum || this.headerCartNum;
-    this.cartGrid = cartGrid || this.cartGrid;
-    this.cartCountInline = cartCountInline || this.cartCountInline;
-    this.cartTotal = cartTotal || this.cartTotal;
-    this.miniCartTotal = miniCartTotal || this.miniCartTotal;
-    if (miniCartList || miniCartHeaderTitle) {
-      this.miniCart.setDomRefs({ listEl: miniCartList, headerTitleEl: miniCartHeaderTitle });
-    }
-    if (cartGrid) this._attachGridListeners();
-  }
-  // --- public mutations: add / remove / changeQty ---
+  // --- public mutations: add / remove / changeQty --------------------------
   add(productId, qty = 1) {
     try {
       const id = this._normalizeId(productId);
@@ -2946,11 +2938,16 @@ var CartModule = class {
     if (prod) {
       const stock = Number(prod.stock || 0);
       if (stock <= 0) {
-        this.notifications?.show?.(this._msg("NOT_ENOUGH_STOCK"), { type: "warning" });
+        this.notifications?.show?.(this._msg("NOT_ENOUGH_STOCK"), {
+          type: "warning"
+        });
         return false;
       }
       if (qty > stock) {
-        this.notifications?.show?.(this._msg("ONLY_X_LEFT", { stock }), { type: "warning" });
+        this.notifications?.show?.(
+          this._msg("ONLY_X_LEFT", { stock }),
+          { type: "warning" }
+        );
         qty = stock;
       }
     }
@@ -2960,7 +2957,12 @@ var CartModule = class {
       const proposed = existing.qty + qty;
       const maxAllowed = prod ? Number(prod.stock || existing.stock || 0) : Number(existing.stock || 0);
       if (maxAllowed > 0 && proposed > maxAllowed) {
-        this.notifications?.show?.(this._msg("INSUFFICIENT_STOCK_ADD", { max: maxAllowed }), { type: "warning" });
+        this.notifications?.show?.(
+          this._msg("INSUFFICIENT_STOCK_ADD", {
+            max: maxAllowed
+          }),
+          { type: "warning" }
+        );
         return false;
       }
       existing.qty = proposed;
@@ -2986,18 +2988,7 @@ var CartModule = class {
         this._noteChangedId(item.name);
       }
     }
-    const p = this.updateCartUI();
-    try {
-      const title = prod && (prod.fullname || prod.title) ? prod.fullname || prod.title : key;
-      try {
-        this.notifications?.show?.(this._msg("ADDED_TO_CART_HTML", { title, qty }), { type: "success", allowHtml: true });
-      } catch (_) {
-        this.notifications?.show?.(this._msg("ADDED_TO_CART_PLAIN", { title, qty }), { type: "success" });
-      }
-    } catch (e) {
-      this._logError("notifications.show failed on add", e);
-    }
-    return p;
+    return true;
   }
   remove(productId) {
     const key = this._normalizeId(productId);
@@ -3006,7 +2997,7 @@ var CartModule = class {
       this._noteChangedId(key);
       this.cart.splice(idx, 1);
       this._updateIndexOnRemove(idx);
-      return this.updateCartUI();
+      return true;
     }
     return false;
   }
@@ -3024,7 +3015,12 @@ var CartModule = class {
       } else if (prod) {
         const stock = Number(prod.stock || item.stock || 0);
         if (stock > 0 && qty > stock) {
-          this.notifications?.show?.(this._msg("INSUFFICIENT_STOCK_CHANGEQTY", { stock }), { type: "warning" });
+          this.notifications?.show?.(
+            this._msg("INSUFFICIENT_STOCK_CHANGEQTY", {
+              stock
+            }),
+            { type: "warning" }
+          );
           qty = stock;
         }
         item.qty = qty;
@@ -3033,12 +3029,15 @@ var CartModule = class {
       }
       try {
         if (opts && opts.sourceRow instanceof Element) {
-          this._changeSourceMap.set(this._normalizeIdKey(key), opts.sourceRow);
+          this._changeSourceMap.set(
+            this._normalizeIdKey(key),
+            opts.sourceRow
+          );
         }
       } catch (_) {
       }
       this._noteChangedId(key);
-      return this.updateCartUI(productId);
+      return true;
     } catch (e) {
       this._logError("changeQty failed", e);
       return false;
@@ -3058,11 +3057,17 @@ var CartModule = class {
       } else {
         const existing = map.get(key);
         existing.qty = Number(existing.qty || 0) + Number(item.qty || 0);
-        if (item.price || item.price === 0) existing.price = Number(item.price);
+        if (item.price || item.price === 0)
+          existing.price = Number(item.price);
         if (item.picture) existing.picture = item.picture;
         if (item.fullname) existing.fullname = item.fullname;
-        if (Number.isFinite(Number(item.stock))) existing.stock = Number(item.stock);
-        existing.specs = Object.assign({}, existing.specs || {}, item.specs || {});
+        if (Number.isFinite(Number(item.stock)))
+          existing.stock = Number(item.stock);
+        existing.specs = Object.assign(
+          {},
+          existing.specs || {},
+          item.specs || {}
+        );
       }
     }
     const merged = Array.from(map.values()).map((it) => {
@@ -3076,7 +3081,91 @@ var CartModule = class {
     this.cart = merged;
     this._rebuildIndex();
   }
-  // --- rendering helpers ---
+  /**
+   * Проверяет доступность товара по его item.
+   */
+  isAvailable(item) {
+    const stock = Number(item.stock);
+    const qtyInCart = this._getCartQtyById(item.name);
+    return stock > 0 && qtyInCart < stock;
+  }
+  // --- utilities for tests / reset / destroy -------------------------------
+  clear() {
+    for (const i of this.cart) this._noteChangedId(i.name);
+    this.cart = [];
+    this._rebuildIndex();
+  }
+  _setCartForTest(cartArray) {
+    this.cart = Array.isArray(cartArray) ? cartArray.map((i) => Object.assign({}, i)) : [];
+    this._rebuildIndex();
+    this.cart.forEach((i) => this._noteChangedId(i.name));
+  }
+  _destroyBase() {
+    if (this._saveTimeout) {
+      clearTimeout(this._saveTimeout);
+      this._saveTimeout = null;
+      try {
+        if (this.storage?.saveCart) this.storage.saveCart(this.cart);
+      } catch (e) {
+        this._logError("final save failed on destroy", e);
+      }
+    }
+  }
+};
+
+// ShopMatic/js/modules/Cart/CartUI.js
+var CartUI = class extends CartBase {
+  constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
+    super({ storage, productService, notifications, favorites, opts });
+    this.renderer = renderer;
+    this.headerCartNum = null;
+    this.mobileCartNum = null;
+    this.cartGrid = null;
+    this.cartCountInline = null;
+    this.cartTotal = null;
+    this.miniCartTotal = null;
+    this.miniCart = new MiniCart({
+      renderer: this.renderer,
+      notifications: this.notifications,
+      opts: opts.miniCart || {}
+    });
+    this._gridHandler = null;
+    this._gridInputHandler = null;
+    this._gridListenersAttachedTo = null;
+  }
+  // ---------------------------------------------------------------------------
+  // DOM refs
+  // ---------------------------------------------------------------------------
+  setDomRefs({
+    headerCartNum,
+    mobileCartNum,
+    miniCartList,
+    miniCartHeaderTitle,
+    cartGrid,
+    cartCountInline,
+    cartTotal,
+    miniCartTotal
+  } = {}) {
+    this.headerCartNum = headerCartNum || this.headerCartNum;
+    this.mobileCartNum = mobileCartNum || this.mobileCartNum;
+    this.cartGrid = cartGrid || this.cartGrid;
+    this.cartCountInline = cartCountInline || this.cartCountInline;
+    this.cartTotal = cartTotal || this.cartTotal;
+    this.miniCartTotal = miniCartTotal || this.miniCartTotal;
+    if (miniCartList || miniCartHeaderTitle) {
+      this.miniCart.setDomRefs({
+        listEl: miniCartList,
+        headerTitleEl: miniCartHeaderTitle
+      });
+    }
+    if (this.cartGrid) this._attachGridListeners();
+  }
+  // ---------------------------------------------------------------------------
+  // Вспомогательные методы для рендеринга
+  // ---------------------------------------------------------------------------
+  _hasGridRenderer() {
+    return !!(this.cartGrid && this.renderer);
+  }
   async _renderItemsToTemp(items) {
     const tmp = document.createElement("div");
     if (typeof this.renderer.renderCards === "function") {
@@ -3087,6 +3176,12 @@ var CartModule = class {
       throw new Error("renderer API missing render function");
     }
     return tmp;
+  }
+  async _renderFullGrid() {
+    if (!this._hasGridRenderer()) return;
+    if (typeof this.renderer._renderCartHorizontal !== "function") return;
+    await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
+    this._attachGridListeners();
   }
   _findRowFromElement(el) {
     if (!el) return null;
@@ -3114,7 +3209,9 @@ var CartModule = class {
       }
       const anyData = row.querySelector && row.querySelector("[data-id],[data-product-id],[data-cart-id]");
       if (anyData) {
-        return this._normalizeIdKey(anyData.getAttribute("data-id") || anyData.getAttribute("data-product-id") || anyData.getAttribute("data-cart-id"));
+        return this._normalizeIdKey(
+          anyData.getAttribute("data-id") || anyData.getAttribute("data-product-id") || anyData.getAttribute("data-cart-id")
+        );
       }
     } catch (e) {
       this._logError("_getIdFromRow failed", e);
@@ -3165,8 +3262,11 @@ var CartModule = class {
       if (!favBtn) return;
       let isFav = false;
       try {
-        if (typeof this.favorites.isFavorite === "function") isFav = !!this.favorites.isFavorite(id);
-        else if (Array.isArray(this.favorites.getAll && this.favorites.getAll())) isFav = this.favorites.getAll().indexOf(id) >= 0;
+        if (typeof this.favorites.isFavorite === "function") {
+          isFav = !!this.favorites.isFavorite(id);
+        } else if (Array.isArray(this.favorites.getAll && this.favorites.getAll())) {
+          isFav = this.favorites.getAll().indexOf(id) >= 0;
+        }
       } catch (e) {
         isFav = false;
       }
@@ -3178,6 +3278,117 @@ var CartModule = class {
       this._logError("_updateFavButtonState failed", e);
     }
   }
+  _ensureStockWarning(row) {
+    let stockWarning = row.querySelector && row.querySelector(".stock-warning");
+    if (!stockWarning) {
+      stockWarning = document.createElement("div");
+      stockWarning.className = "stock-warning";
+      stockWarning.style.cssText = "color:#c62828;font-size:13px;margin-top:6px;display:none;";
+      const right = row.querySelector(".cart-item__aside") || row;
+      right.appendChild(stockWarning);
+    }
+    return stockWarning;
+  }
+  _findAllRowsByIdInGrid(id) {
+    if (!this.cartGrid || !id) return [];
+    const esc = this._cssEscape(String(id));
+    const nodes = [];
+    try {
+      const q = this.cartGrid.querySelectorAll(`[data-id="${esc}"]`);
+      if (q && q.length) {
+        for (const n of q) nodes.push(this._findRowFromElement(n) || n);
+      } else {
+        const rows = this.cartGrid.querySelectorAll && this.cartGrid.querySelectorAll(".cart-item");
+        if (rows) {
+          for (const r of rows) {
+            try {
+              if (this._getIdFromRow(r) === this._normalizeIdKey(id)) nodes.push(r);
+            } catch (_) {
+            }
+          }
+        }
+      }
+    } catch (e) {
+      const rows = this.cartGrid.querySelectorAll && this.cartGrid.querySelectorAll(".cart-item");
+      if (rows) {
+        for (const r of rows) {
+          try {
+            if (this._getIdFromRow(r) === this._normalizeIdKey(id)) nodes.push(r);
+          } catch (_) {
+          }
+        }
+      }
+    }
+    const uniq = [];
+    for (const n of nodes) if (n && uniq.indexOf(n) < 0) uniq.push(n);
+    return uniq;
+  }
+  _applyProducedRowSafely(id, produced, existingRow) {
+    if (!this.cartGrid || !produced) return;
+    const existingRows = this._findAllRowsByIdInGrid(id);
+    try {
+      if (existingRows.length > 0) {
+        const first = existingRows[0];
+        if (first && first.parentNode) {
+          try {
+            first.parentNode.replaceChild(produced, first);
+          } catch (e) {
+            this.cartGrid.appendChild(produced);
+          }
+        } else {
+          this.cartGrid.appendChild(produced);
+        }
+        for (let i = 1; i < existingRows.length; i++) {
+          const node = existingRows[i];
+          try {
+            if (node && node.parentNode) node.parentNode.removeChild(node);
+          } catch (_) {
+          }
+        }
+      } else if (existingRow && existingRow.parentNode) {
+        try {
+          existingRow.parentNode.replaceChild(produced, existingRow);
+        } catch (e) {
+          this.cartGrid.appendChild(produced);
+        }
+      } else {
+        this.cartGrid.appendChild(produced);
+      }
+    } catch (e) {
+      try {
+        this.cartGrid.appendChild(produced);
+      } catch (_) {
+      }
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Синхронизация строки с моделью
+  // ---------------------------------------------------------------------------
+  _resolveStockAndQty(row, item, qtyInput) {
+    let stock = Number.isFinite(Number(item?.stock)) ? Number(item.stock) : NaN;
+    if (!Number.isFinite(stock)) {
+      const ds = row.getAttribute && row.getAttribute("data-stock");
+      stock = ds !== null ? Number(ds) : NaN;
+    }
+    if (!Number.isFinite(stock)) {
+      const modelItem = item?.name ? this._getCartItemById(item.name) : null;
+      stock = modelItem ? Number(modelItem.stock || 0) : 0;
+    }
+    let qty = Number.isFinite(Number(item?.qty)) ? Number(item.qty) : NaN;
+    if (!Number.isFinite(qty)) {
+      if (qtyInput) {
+        const v = parseInt(qtyInput.value || "0", 10);
+        qty = Number.isFinite(v) ? v : NaN;
+      }
+      if (!Number.isFinite(qty)) {
+        const modelItem = item?.name ? this._getCartItemById(item.name) : null;
+        qty = modelItem ? Number(modelItem.qty || 0) : 0;
+      }
+    }
+    if (!Number.isFinite(stock)) stock = 0;
+    if (!Number.isFinite(qty)) qty = 0;
+    return { stock, qty };
+  }
   _syncRowControls(row, item) {
     if (!row) return;
     if (this._rowsSyncing.has(row)) return;
@@ -3186,36 +3397,9 @@ var CartModule = class {
       const qtyInput = row.querySelector && row.querySelector(".qty-input");
       const btnPlus = row.querySelector && (row.querySelector(".qty-btn.qty-incr") || row.querySelector('[data-action="qty-incr"]') || row.querySelector('[data-role="qty-plus"]'));
       const btnMinus = row.querySelector && (row.querySelector(".qty-btn.qty-decr") || row.querySelector('[data-action="qty-decr"]') || row.querySelector('[data-role="qty-minus"]'));
-      let stock = Number.isFinite(Number(item?.stock)) ? Number(item.stock) : NaN;
-      if (!Number.isFinite(stock)) {
-        const ds = row.getAttribute && row.getAttribute("data-stock");
-        stock = ds !== null ? Number(ds) : NaN;
-      }
-      if (!Number.isFinite(stock)) {
-        const modelItem = item?.name ? this._getCartItemById(item.name) : null;
-        stock = modelItem ? Number(modelItem.stock || 0) : 0;
-      }
-      let qty = Number.isFinite(Number(item?.qty)) ? Number(item.qty) : NaN;
-      if (!Number.isFinite(qty)) {
-        if (qtyInput) {
-          const v = parseInt(qtyInput.value || "0", 10);
-          qty = Number.isFinite(v) ? v : NaN;
-        }
-        if (!Number.isFinite(qty)) {
-          const modelItem = item?.name ? this._getCartItemById(item.name) : null;
-          qty = modelItem ? Number(modelItem.qty || 0) : 0;
-        }
-      }
-      if (!Number.isFinite(stock)) stock = 0;
-      if (!Number.isFinite(qty)) qty = 0;
-      let stockWarning = row.querySelector && row.querySelector(".stock-warning");
-      if (!stockWarning) {
-        stockWarning = document.createElement("div");
-        stockWarning.className = "stock-warning";
-        stockWarning.style.cssText = "color:#c62828;font-size:13px;margin-top:6px;display:none;";
-        const right = row.querySelector(".cart-item__aside") || row;
-        right.appendChild(stockWarning);
-      }
+      const { stock, qty: rawQty } = this._resolveStockAndQty(row, item, qtyInput);
+      let qty = rawQty;
+      const stockWarning = this._ensureStockWarning(row);
       if (qtyInput) {
         qtyInput.setAttribute("min", "1");
         qtyInput.setAttribute("max", String(stock));
@@ -3241,8 +3425,11 @@ var CartModule = class {
         btnPlus.disabled = disabled;
         btnPlus.toggleAttribute && btnPlus.toggleAttribute("aria-disabled", disabled);
         btnPlus.classList.toggle("disabled", disabled);
-        if (stock > 0 && qty >= stock) this._showLimitMsg(row, this._msg("PRODUCT_LIMIT_REACHED"));
-        else this._hideLimitMsg(row);
+        if (stock > 0 && qty >= stock) {
+          this._showLimitMsg(row, this._msg("PRODUCT_LIMIT_REACHED"));
+        } else {
+          this._hideLimitMsg(row);
+        }
       } else {
         this._hideLimitMsg(row);
       }
@@ -3272,32 +3459,7 @@ var CartModule = class {
         stockWarning.setAttribute("aria-hidden", "true");
         row.classList.remove("out-of-stock");
       }
-      try {
-        const id = this._getIdFromRow(row);
-        if (id && this.productService && typeof this.productService.findById === "function") {
-          const prod = this._resolveProduct(id);
-          if (this._isThenable(prod)) {
-            prod.then((resolved) => {
-              if (!resolved) return;
-              const existing = this._getCartItemById(id);
-              if (existing) {
-                this._mergeProductToItem(existing, resolved, true);
-                const mainRow = this._findRowFromElement(row) || row;
-                this._syncRowControls(mainRow, existing);
-              }
-            }).catch((err) => this._logError("single product refresh failed", err));
-          } else if (prod) {
-            const existing = this._getCartItemById(id);
-            if (existing) {
-              this._mergeProductToItem(existing, prod, true);
-              const mainRow = this._findRowFromElement(row) || row;
-              this._syncRowControls(mainRow, existing);
-            }
-          }
-        }
-      } catch (e) {
-        this._logError("_syncRowControls product refresh failed", e);
-      }
+      this._refreshSingleProductForRow(row);
     } catch (e) {
       this._logError("_syncRowControls failed", e);
     } finally {
@@ -3307,290 +3469,148 @@ var CartModule = class {
       }
     }
   }
-  async updateCartUI(targetId = null) {
-    const overrideIdKey = targetId ? this._normalizeIdKey(targetId) : null;
-    const changedIdsSnapshot = overrideIdKey ? [String(overrideIdKey)] : Array.from(this._pendingChangedIds);
-    this._dedupeCart();
-    this._rebuildIndex();
+  _refreshSingleProductForRow(row) {
     try {
-      if (this.productService && typeof this.productService.findById === "function") {
-        if (overrideIdKey) {
-          const id = overrideIdKey;
-          const item = this._getCartItemById(id);
-          if (item) {
-            try {
-              const prod = this._resolveProduct(id);
-              if (this._isThenable(prod)) {
-                const resolved = await prod.catch(() => null);
-                if (resolved) this._mergeProductToItem(item, resolved, true);
-              } else if (prod) this._mergeProductToItem(item, prod, true);
-            } catch (e) {
-              this._logError("single product fetch failed", e);
+      const id = this._getIdFromRow(row);
+      if (!id || !this.productService || typeof this.productService.findById !== "function") {
+        return;
+      }
+      const prod = this._resolveProduct(id);
+      if (this._isThenable(prod)) {
+        prod.then((resolved) => {
+          if (!resolved) return;
+          const existing = this._getCartItemById(id);
+          if (!existing) return;
+          this._mergeProductToItem(existing, resolved, true);
+          const mainRow = this._findRowFromElement(row) || row;
+          this._syncRowControls(mainRow, existing);
+        }).catch((err) => this._logError("single product refresh failed", err));
+      } else if (prod) {
+        const existing = this._getCartItemById(id);
+        if (!existing) return;
+        this._mergeProductToItem(existing, prod, true);
+        const mainRow = this._findRowFromElement(row) || row;
+        this._syncRowControls(mainRow, existing);
+      }
+    } catch (e) {
+      this._logError("_syncRowControls product refresh failed", e);
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Обновление данных перед UI
+  // ---------------------------------------------------------------------------
+  async _refreshProducts(overrideIdKey) {
+    if (!this.productService || typeof this.productService.findById !== "function") {
+      return;
+    }
+    if (overrideIdKey) {
+      const id = overrideIdKey;
+      const item = this._getCartItemById(id);
+      if (!item) return;
+      try {
+        const prod = this._resolveProduct(id);
+        if (this._isThenable(prod)) {
+          const resolved = await prod.catch(() => null);
+          if (resolved) this._mergeProductToItem(item, resolved, true);
+        } else if (prod) {
+          this._mergeProductToItem(item, prod, true);
+        }
+      } catch (e) {
+        this._logError("single product fetch failed", e);
+      }
+      return;
+    }
+    const tasks = this.cart.map((item) => {
+      const id = this._normalizeId(item.name);
+      try {
+        const prod = this._resolveProduct(id);
+        if (this._isThenable(prod)) {
+          return prod.then((res) => ({ id, res })).catch((err) => ({ id, res: null, err }));
+        }
+        return Promise.resolve({ id, res: prod || null });
+      } catch (e) {
+        return Promise.resolve({ id, res: null, err: e });
+      }
+    });
+    try {
+      if (this.opts.parallelProductFetch) {
+        const settled = await Promise.allSettled(tasks);
+        for (const r of settled) {
+          if (r.status === "fulfilled" && r.value?.res) {
+            const id = r.value.id;
+            const resolved = r.value.res;
+            const idx = this._findCartIndexById(id);
+            if (idx >= 0) {
+              this._mergeProductToItem(this.cart[idx], resolved, true);
             }
+          } else if (r.status === "rejected") {
+            this._logError("product fetch failed", r.reason);
           }
-        } else {
-          const tasks = this.cart.map((item) => {
-            const id = this._normalizeId(item.name);
-            try {
-              const prod = this._resolveProduct(id);
-              if (this._isThenable(prod)) {
-                return prod.then((res) => ({ id, res })).catch((err) => ({ id, res: null, err }));
-              } else {
-                return Promise.resolve({ id, res: prod || null });
-              }
-            } catch (e) {
-              return Promise.resolve({ id, res: null, err: e });
-            }
-          });
-          if (this.opts.parallelProductFetch) {
-            const settled = await Promise.allSettled(tasks);
-            for (const r of settled) {
-              if (r.status === "fulfilled" && r.value?.res) {
-                const id = r.value.id;
-                const resolved = r.value.res;
-                const idx = this._findCartIndexById(id);
-                if (idx >= 0) {
-                  this._mergeProductToItem(this.cart[idx], resolved, true);
-                }
-              } else if (r.status === "rejected") {
-                this._logError("product fetch failed", r.reason);
+        }
+      } else {
+        for (const t of tasks) {
+          try {
+            const r = await t;
+            if (r?.res) {
+              const idx = this._findCartIndexById(r.id);
+              if (idx >= 0) {
+                this._mergeProductToItem(this.cart[idx], r.res, true);
               }
             }
-          } else {
-            for (const t of tasks) {
-              try {
-                const r = await t;
-                if (r?.res) {
-                  const idx = this._findCartIndexById(r.id);
-                  if (idx >= 0) this._mergeProductToItem(this.cart[idx], r.res, true);
-                }
-              } catch (e) {
-                this._logError("sequential product refresh failed", e);
-              }
-            }
+          } catch (e) {
+            this._logError("sequential product refresh failed", e);
           }
         }
       }
     } catch (e) {
       this._logError("updateCartUI (product fetch) failed", e);
     }
+  }
+  _calculateTotals() {
     let totalCount = 0;
     let totalSum = 0;
     for (const it of this.cart) {
       totalCount += Number(it.qty || 0);
       totalSum += Number(it.price || 0) * Number(it.qty || 0);
     }
+    return { totalCount, totalSum };
+  }
+  _updateBadges(totalCount) {
     try {
       if (this.headerCartNum) {
         this.headerCartNum.textContent = String(totalCount);
         this.headerCartNum.style.display = totalCount > 0 ? "inline-flex" : "none";
         this.headerCartNum.setAttribute("aria-hidden", totalCount > 0 ? "false" : "true");
+        if (this.mobileCartNum) {
+          this.mobileCartNum.textContent = String(totalCount);
+          this.mobileCartNum.style.display = totalCount > 0 ? "inline-flex" : "none";
+          this.mobileCartNum.setAttribute("aria-hidden", totalCount > 0 ? "false" : "true");
+        }
       }
     } catch (e) {
       this._logError("headerCartNum update failed", e);
     }
     try {
-      if (this.miniCart && typeof this.miniCart.updateHeader === "function") this.miniCart.updateHeader(totalCount);
+      if (this.miniCart && typeof this.miniCart.updateHeader === "function") {
+        this.miniCart.updateHeader(totalCount);
+      }
     } catch (e) {
       this._logError("miniCart.updateHeader failed", e);
     }
+  }
+  async _renderMiniCart() {
     try {
       if (this.miniCart && typeof this.miniCart.render === "function") {
         const maybe = this.miniCart.render(this.cart);
-        if (this._isThenable(maybe)) await maybe.catch((err) => this._logError("miniCart.render failed", err));
+        if (this._isThenable(maybe)) {
+          await maybe.catch((err) => this._logError("miniCart.render failed", err));
+        }
       }
     } catch (e) {
       this._logError("miniCart.render threw", e);
     }
-    try {
-      if (this.cartGrid && this.renderer) {
-        if (overrideIdKey) {
-          const id = String(overrideIdKey);
-          this._pendingChangedIds.delete(id);
-          const esc = this._cssEscape(String(id));
-          let targetRow = null;
-          try {
-            targetRow = this.cartGrid.querySelector(`[data-id="${esc}"]`);
-          } catch (_) {
-            targetRow = null;
-          }
-          targetRow = this._findRowFromElement(targetRow) || targetRow;
-          const item = this._getCartItemById(id);
-          if (!item) {
-            const rows = this._findAllRowsByIdInGrid(id);
-            for (const r of rows) {
-              try {
-                if (r.parentNode) r.parentNode.removeChild(r);
-              } catch (_) {
-              }
-            }
-            if (this.cart.length === 0) {
-              try {
-                if (typeof this.renderer._renderCartHorizontal === "function") await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-              } catch (er) {
-                this._logError("render empty state failed", er);
-              }
-            }
-            this._attachGridListeners();
-          } else {
-            let producedRow = null;
-            try {
-              const tmp = await this._renderItemsToTemp([item]);
-              producedRow = tmp.querySelector(".cart-item") || tmp.firstElementChild;
-            } catch (err) {
-              this._logError("renderer.render failed (fast-path)", err);
-              producedRow = null;
-            }
-            if (producedRow && producedRow.cloneNode) {
-              const clone = producedRow.cloneNode(true);
-              clone.setAttribute && clone.setAttribute("data-id", String(id));
-              if (targetRow && targetRow.parentNode) {
-                try {
-                  targetRow.parentNode.replaceChild(clone, targetRow);
-                } catch (e) {
-                  try {
-                    targetRow.parentNode.appendChild(clone);
-                  } catch (_) {
-                  }
-                }
-              } else {
-                const rows = this._findAllRowsByIdInGrid(id);
-                if (rows.length > 0) {
-                  try {
-                    rows[0].parentNode.replaceChild(clone, rows[0]);
-                  } catch (e) {
-                    try {
-                      this.cartGrid.appendChild(clone);
-                    } catch (_) {
-                    }
-                  }
-                  for (let i = 1; i < rows.length; i++) try {
-                    if (rows[i].parentNode) rows[i].parentNode.removeChild(rows[i]);
-                  } catch (_) {
-                  }
-                } else {
-                  try {
-                    this.cartGrid.appendChild(clone);
-                  } catch (_) {
-                  }
-                }
-              }
-              const mainRow = this._findRowFromElement(clone) || clone;
-              if (mainRow && item) this._syncRowControls(mainRow, item);
-              if (mainRow) this._updateFavButtonState(mainRow, id);
-              try {
-                const src = this._changeSourceMap.get(id);
-                if (src instanceof Element) {
-                  const q = mainRow.querySelector && mainRow.querySelector(".qty-input");
-                  if (q) q.focus();
-                }
-              } catch (_) {
-              }
-              try {
-                this._changeSourceMap.delete(id);
-              } catch (_) {
-              }
-              this._attachGridListeners();
-            } else {
-              if (typeof this.renderer._renderCartHorizontal === "function") {
-                try {
-                  await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-                } catch (er) {
-                  this._logError("fallback full render failed (fast-path)", er);
-                }
-                this._attachGridListeners();
-              }
-            }
-          }
-        } else {
-          const changedIds = changedIdsSnapshot;
-          if (!changedIds.length) {
-            if (typeof this.renderer._renderCartHorizontal === "function") {
-              await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-              this._attachGridListeners();
-            }
-          } else {
-            const tasks = changedIds.map(async (id) => {
-              const item = this._getCartItemById(id);
-              if (!item) return { id, removed: true };
-              try {
-                const tmp = await this._renderItemsToTemp([item]);
-                const produced = tmp.querySelector(".cart-item") || tmp.firstElementChild;
-                return { id, produced, item };
-              } catch (err) {
-                return { id, error: err };
-              }
-            });
-            const settled = await Promise.allSettled(tasks);
-            let hadFailure = false;
-            const apply = [];
-            for (const r of settled) {
-              if (r.status === "fulfilled" && r.value) {
-                if (r.value.error) {
-                  hadFailure = true;
-                  this._logError("partial render task error", r.value.error);
-                } else apply.push(r.value);
-              } else {
-                hadFailure = true;
-                this._logError("partial render promise rejected", r);
-              }
-            }
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-            for (const c of apply) {
-              try {
-                if (c.removed) {
-                  const rows = this._findAllRowsByIdInGrid(c.id);
-                  for (const rr of rows) try {
-                    if (rr.parentNode) rr.parentNode.removeChild(rr);
-                  } catch (_) {
-                  }
-                  continue;
-                }
-                if (!c.produced) {
-                  hadFailure = true;
-                  continue;
-                }
-                const produced = c.produced.cloneNode(true);
-                if (produced.setAttribute) produced.setAttribute("data-id", String(c.id));
-                this._applyProducedRowSafely(c.id, produced, c.existingRow);
-                const mainRow = this._findRowFromElement(produced) || produced;
-                if (c.item) this._syncRowControls(mainRow, c.item);
-                this._updateFavButtonState(mainRow, c.id);
-              } catch (e) {
-                hadFailure = true;
-                this._logError("applyChange failed", e);
-              }
-            }
-            if (hadFailure) {
-              try {
-                await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-              } catch (e) {
-                this._logError("fallback full render failed", e);
-              }
-            } else {
-              if (this.cart.length === 0) {
-                try {
-                  if (typeof this.renderer._renderCartHorizontal === "function") await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-                } catch (e) {
-                  this._logError("render empty state failed", e);
-                }
-              }
-            }
-            this._attachGridListeners();
-          }
-        }
-      }
-    } catch (e) {
-      this._logError("cart grid update failed, attempting full render", e);
-      try {
-        if (this.cartGrid && this.renderer && typeof this.renderer._renderCartHorizontal === "function") {
-          await this.renderer._renderCartHorizontal(this.cartGrid, this.cart);
-          this._attachGridListeners();
-        }
-      } catch (er) {
-        this._logError("full render fallback failed", er);
-      }
-    }
+  }
+  _updateTotalsUI(totalCount, totalSum) {
     try {
       if (this.cartTotal) this.cartTotal.textContent = this._formatPrice(totalSum);
       if (this.miniCartTotal) this.miniCartTotal.textContent = this._formatPrice(totalSum);
@@ -3598,206 +3618,361 @@ var CartModule = class {
     } catch (e) {
       this._logError("totals update failed", e);
     }
+  }
+  async _updateGridSingle(overrideIdKey) {
+    const id = String(overrideIdKey);
+    this._pendingChangedIds.delete(id);
+    const esc = this._cssEscape(String(id));
+    let targetRow = null;
     try {
-      if (this.cartGrid && changedIdsSnapshot.length) {
-        for (const id of changedIdsSnapshot) {
-          const esc = this._cssEscape(String(id));
-          let row = null;
+      targetRow = this.cartGrid.querySelector(`[data-id="${esc}"]`);
+    } catch (_) {
+      targetRow = null;
+    }
+    targetRow = this._findRowFromElement(targetRow) || targetRow;
+    const item = this._getCartItemById(id);
+    if (!item) {
+      const rows = this._findAllRowsByIdInGrid(id);
+      for (const r of rows) {
+        try {
+          if (r.parentNode) r.parentNode.removeChild(r);
+        } catch (_) {
+        }
+      }
+      if (this.cart.length === 0) {
+        await this._renderFullGrid();
+      } else {
+        this._attachGridListeners();
+      }
+      return;
+    }
+    let producedRow = null;
+    try {
+      const tmp = await this._renderItemsToTemp([item]);
+      producedRow = tmp.querySelector(".cart-item") || tmp.firstElementChild;
+    } catch (err) {
+      this._logError("renderer.render failed (fast-path)", err);
+      producedRow = null;
+    }
+    if (!producedRow || !producedRow.cloneNode) {
+      await this._renderFullGrid();
+      return;
+    }
+    const clone = producedRow.cloneNode(true);
+    clone.setAttribute && clone.setAttribute("data-id", String(id));
+    if (targetRow && targetRow.parentNode) {
+      try {
+        targetRow.parentNode.replaceChild(clone, targetRow);
+      } catch (e) {
+        try {
+          targetRow.parentNode.appendChild(clone);
+        } catch (_) {
+        }
+      }
+    } else {
+      const rows = this._findAllRowsByIdInGrid(id);
+      if (rows.length > 0) {
+        try {
+          rows[0].parentNode.replaceChild(clone, rows[0]);
+        } catch (e) {
           try {
-            row = this.cartGrid.querySelector(`[data-id="${esc}"]`);
-          } catch (err) {
-            row = null;
+            this.cartGrid.appendChild(clone);
+          } catch (_) {
           }
-          const mainRow = this._findRowFromElement(row) || row;
-          const item = this._getCartItemById(id);
-          if (mainRow && item) {
-            this._syncRowControls(mainRow, item);
-            this._updateFavButtonState(mainRow, id);
-          } else if (mainRow) this._updateFavButtonState(mainRow, id);
+        }
+        for (let i = 1; i < rows.length; i++) {
+          try {
+            if (rows[i].parentNode) rows[i].parentNode.removeChild(rows[i]);
+          } catch (_) {
+          }
+        }
+      } else {
+        try {
+          this.cartGrid.appendChild(clone);
+        } catch (_) {
+        }
+      }
+    }
+    const mainRow = this._findRowFromElement(clone) || clone;
+    if (mainRow && item) this._syncRowControls(mainRow, item);
+    if (mainRow) this._updateFavButtonState(mainRow, id);
+    try {
+      const src = this._changeSourceMap.get(id);
+      if (src instanceof Element) {
+        const q = mainRow.querySelector && mainRow.querySelector(".qty-input");
+        if (q) q.focus();
+      }
+    } catch (_) {
+    }
+    try {
+      this._changeSourceMap.delete(id);
+    } catch (_) {
+    }
+    this._attachGridListeners();
+  }
+  async _updateGridPartial(changedIdsSnapshot) {
+    const changedIds = changedIdsSnapshot;
+    if (!changedIds.length) {
+      await this._renderFullGrid();
+      return;
+    }
+    const tasks = changedIds.map(async (id) => {
+      const item = this._getCartItemById(id);
+      if (!item) return { id, removed: true };
+      try {
+        const tmp = await this._renderItemsToTemp([item]);
+        const produced = tmp.querySelector(".cart-item") || tmp.firstElementChild;
+        return { id, produced, item };
+      } catch (err) {
+        return { id, error: err };
+      }
+    });
+    const settled = await Promise.allSettled(tasks);
+    let hadFailure = false;
+    const apply = [];
+    for (const r of settled) {
+      if (r.status === "fulfilled" && r.value) {
+        if (r.value.error) {
+          hadFailure = true;
+          this._logError("partial render task error", r.value.error);
+        } else {
+          apply.push(r.value);
+        }
+      } else {
+        hadFailure = true;
+        this._logError("partial render promise rejected", r);
+      }
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    for (const c of apply) {
+      try {
+        if (c.removed) {
+          const rows = this._findAllRowsByIdInGrid(c.id);
+          for (const rr of rows) {
+            try {
+              if (rr.parentNode) rr.parentNode.removeChild(rr);
+            } catch (_) {
+            }
+          }
+          continue;
+        }
+        if (!c.produced) {
+          hadFailure = true;
+          continue;
+        }
+        const produced = c.produced.cloneNode(true);
+        if (produced.setAttribute) produced.setAttribute("data-id", String(c.id));
+        this._applyProducedRowSafely(c.id, produced, c.existingRow);
+        const mainRow = this._findRowFromElement(produced) || produced;
+        if (c.item) this._syncRowControls(mainRow, c.item);
+        this._updateFavButtonState(mainRow, c.id);
+      } catch (e) {
+        hadFailure = true;
+        this._logError("applyChange failed", e);
+      }
+    }
+    if (hadFailure) {
+      await this._renderFullGrid();
+    } else if (this.cart.length === 0) {
+      await this._renderFullGrid();
+    } else {
+      this._attachGridListeners();
+    }
+  }
+  _finalSyncRows(changedIdsSnapshot) {
+    try {
+      if (!this.cartGrid || !changedIdsSnapshot.length) return;
+      for (const id of changedIdsSnapshot) {
+        const esc = this._cssEscape(String(id));
+        let row = null;
+        try {
+          row = this.cartGrid.querySelector(`[data-id="${esc}"]`);
+        } catch (err) {
+          row = null;
+        }
+        const mainRow = this._findRowFromElement(row) || row;
+        const item = this._getCartItemById(id);
+        if (mainRow && item) {
+          this._syncRowControls(mainRow, item);
+          this._updateFavButtonState(mainRow, id);
+        } else if (mainRow) {
+          this._updateFavButtonState(mainRow, id);
         }
       }
     } catch (e) {
       this._logError("final sync failed", e);
     }
+  }
+  // ---------------------------------------------------------------------------
+  // Основной UI-апдейт
+  // ---------------------------------------------------------------------------
+  async updateCartUI(targetId = null) {
+    const overrideIdKey = targetId ? this._normalizeIdKey(targetId) : null;
+    const changedIdsSnapshot = overrideIdKey ? [String(overrideIdKey)] : Array.from(this._pendingChangedIds);
+    this._dedupeCart();
+    this._rebuildIndex();
+    await this._refreshProducts(overrideIdKey);
+    const { totalCount, totalSum } = this._calculateTotals();
+    this._updateBadges(totalCount);
+    await this._renderMiniCart();
+    try {
+      if (this._hasGridRenderer()) {
+        if (overrideIdKey) {
+          await this._updateGridSingle(overrideIdKey);
+        } else {
+          await this._updateGridPartial(changedIdsSnapshot);
+        }
+      }
+    } catch (e) {
+      this._logError("cart grid update failed, attempting full render", e);
+      try {
+        await this._renderFullGrid();
+      } catch (er) {
+        this._logError("full render fallback failed", er);
+      }
+    }
+    this._updateTotalsUI(totalCount, totalSum);
+    this._finalSyncRows(changedIdsSnapshot);
     this._scheduleSave();
     this._emitUpdateEvent();
     return { cart: this.getCart(), totalCount, totalSum };
   }
-  /**
-   * Проверяет доступность товара по его id.
-   * Учитывает количество товара в корзине и его наличие на складе.
-   * @param {string} id - Идентификатор товара
-   * @returns {boolean} - Доступность товара (true если доступен, false если нет)
-   */
-  isAvailable(item) {
-    const stock = Number(item.stock);
-    const qtyInCart = this._getCartQtyById(item.name);
-    return stock > 0 && qtyInCart < stock;
-  }
-  _findAllRowsByIdInGrid(id) {
-    if (!this.cartGrid || !id) return [];
-    const esc = this._cssEscape(String(id));
-    const nodes = [];
-    try {
-      const q = this.cartGrid.querySelectorAll(`[data-id="${esc}"]`);
-      if (q && q.length) {
-        for (const n of q) nodes.push(this._findRowFromElement(n) || n);
-      } else {
-        const rows = this.cartGrid.querySelectorAll && this.cartGrid.querySelectorAll(".cart-item");
-        if (rows) {
-          for (const r of rows) {
-            try {
-              if (this._getIdFromRow(r) === this._normalizeIdKey(id)) nodes.push(r);
-            } catch (_) {
-            }
-          }
-        }
-      }
-    } catch (e) {
-      const rows = this.cartGrid.querySelectorAll && this.cartGrid.querySelectorAll(".cart-item");
-      if (rows) for (const r of rows) try {
-        if (this._getIdFromRow(r) === this._normalizeIdKey(id)) nodes.push(r);
-      } catch (_) {
-      }
-    }
-    const uniq = [];
-    for (const n of nodes) if (n && uniq.indexOf(n) < 0) uniq.push(n);
-    return uniq;
-  }
-  _applyProducedRowSafely(id, produced, existingRow) {
-    if (!this.cartGrid || !produced) return;
-    const existingRows = this._findAllRowsByIdInGrid(id);
-    try {
-      if (existingRows.length > 0) {
-        const first = existingRows[0];
-        if (first && first.parentNode) {
-          try {
-            first.parentNode.replaceChild(produced, first);
-          } catch (e) {
-            this.cartGrid.appendChild(produced);
-          }
-        } else this.cartGrid.appendChild(produced);
-        for (let i = 1; i < existingRows.length; i++) {
-          const node = existingRows[i];
-          try {
-            if (node && node.parentNode) node.parentNode.removeChild(node);
-          } catch (_) {
-          }
-        }
-      } else if (existingRow && existingRow.parentNode) {
-        try {
-          existingRow.parentNode.replaceChild(produced, existingRow);
-        } catch (e) {
-          this.cartGrid.appendChild(produced);
-        }
-      } else {
-        this.cartGrid.appendChild(produced);
-      }
-    } catch (e) {
-      try {
-        this.cartGrid.appendChild(produced);
-      } catch (_) {
-      }
-    }
-  }
-  // --- grid listeners attach/detach ---
+  // ---------------------------------------------------------------------------
+  // Grid listeners
+  // ---------------------------------------------------------------------------
   _attachGridListeners() {
     if (!this.cartGrid) return;
-    if (this._gridListenersAttachedTo && this._gridListenersAttachedTo !== this.cartGrid) this._detachGridListeners();
+    if (this._gridListenersAttachedTo && this._gridListenersAttachedTo !== this.cartGrid) {
+      this._detachGridListeners();
+    }
     if (this._gridHandler) return;
-    this._gridHandler = (ev) => {
-      const target = ev.target;
-      const row = this._findRowFromElement(target);
-      if (!row) return;
-      const id = this._getIdFromRow(row);
-      if (!id) return;
-      const fav = target.closest && target.closest('.fav-btn, [data-role="fav"]');
-      if (fav) {
-        ev.preventDefault();
-        if (!this.favorites) {
-          this.notifications?.show?.(this._msg("FAVORITES_UNAVAILABLE"), { type: "error" });
-          return;
-        }
-        try {
-          let res;
-          if (typeof this.favorites.toggle === "function") res = this.favorites.toggle(id);
-          else if (typeof this.favorites.add === "function" && typeof this.favorites.remove === "function") {
-            const now = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
-            res = now ? this.favorites.remove(id) : this.favorites.add(id);
-          }
-          const favBtnEl = row.querySelector && row.querySelector(".fav-btn");
-          const isFavNow = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
-          if (favBtnEl) {
-            favBtnEl.classList.toggle("is-fav", isFavNow);
-            favBtnEl.setAttribute("aria-pressed", String(isFavNow));
-          }
-          const wishEl = document.getElementById && document.getElementById("wishNum");
-          try {
-            if (wishEl && typeof this.favorites.getCount === "function") wishEl.textContent = String(this.favorites.getCount());
-          } catch (_) {
-          }
-          if (res && this._isThenable(res)) {
-            res.then(() => {
-              const finalFav = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
-              if (favBtnEl) favBtnEl.classList.toggle("is-fav", finalFav);
-              if (wishEl && typeof this.favorites.getCount === "function") wishEl.textContent = String(this.favorites.getCount());
-            }).catch((err) => this._logError("favorites operation failed", err));
-          }
-        } catch (e) {
-          this._logError("fav handling failed", e);
-        }
-        return;
-      }
-      const plus = target.closest && target.closest('.qty-btn.qty-incr, [data-action="qty-incr"], [data-role="qty-plus"]');
-      if (plus) {
-        ev.preventDefault();
-        const item = this._getCartItemById(id);
-        if (!item) return;
-        const stock = Number(item.stock || 0);
-        if (stock <= 0) {
-          this.notifications?.show?.(this._msg("PRODUCT_OUT_OF_STOCK"), { type: "warning" });
-          this._syncRowControls(row, item);
-          return;
-        }
-        if (item.qty < stock) this.changeQty(id, item.qty + 1, { sourceRow: row });
-        else this.notifications?.show?.(this._msg("REACHED_MAX_STOCK_LIMIT_NOTIFY"), { type: "warning" });
-        return;
-      }
-      const minus = target.closest && target.closest('.qty-btn.qty-decr, [data-action="qty-decr"], [data-role="qty-minus"]');
-      if (minus) {
-        ev.preventDefault();
-        const item = this._getCartItemById(id);
-        if (!item) return;
-        if (item.qty > 1) this.changeQty(id, item.qty - 1, { sourceRow: row });
-        return;
-      }
-      const rem = target.closest && target.closest('.remove-btn, [data-action="remove"], [data-role="remove"]');
-      if (rem) {
-        ev.preventDefault();
-        this.remove(id);
-        return;
-      }
-    };
-    this._gridInputHandler = (ev) => {
-      const input = ev.target;
-      if (!input) return;
-      if (!(input.matches && (input.matches(".qty-input") || input.matches('[data-role="qty-input"]') || input.matches('input[type="number"]')))) return;
-      const row = this._findRowFromElement(input);
-      if (!row) return;
-      const id = this._getIdFromRow(row);
-      if (!id) return;
-      let v = parseInt(input.value, 10);
-      if (isNaN(v) || v < 1) v = 1;
-      const max = parseInt(input.getAttribute("max") || "0", 10);
-      if (Number.isFinite(max) && max > 0 && v > max) v = max;
-      this.changeQty(id, v, { sourceRow: row });
-    };
+    this._gridHandler = (ev) => this._handleGridClick(ev);
+    this._gridInputHandler = (ev) => this._handleGridInput(ev);
     try {
       this.cartGrid.addEventListener("click", this._gridHandler);
       this.cartGrid.addEventListener("change", this._gridInputHandler);
       this._gridListenersAttachedTo = this.cartGrid;
     } catch (e) {
       this._logError("_attachGridListeners failed", e);
+    }
+  }
+  _handleGridClick(ev) {
+    const target = ev.target;
+    const row = this._findRowFromElement(target);
+    if (!row) return;
+    const id = this._getIdFromRow(row);
+    if (!id) return;
+    const closest = (sel) => target.closest && target.closest(sel) || null;
+    const fav = closest('.fav-btn, [data-role="fav"]');
+    if (fav) {
+      ev.preventDefault();
+      this._handleFavClick(id, row);
+      return;
+    }
+    const plus = closest('.qty-btn.qty-incr, [data-action="qty-incr"], [data-role="qty-plus"]');
+    if (plus) {
+      ev.preventDefault();
+      this._handlePlusClick(id, row);
+      return;
+    }
+    const minus = closest('.qty-btn.qty-decr, [data-action="qty-decr"], [data-role="qty-minus"]');
+    if (minus) {
+      ev.preventDefault();
+      this._handleMinusClick(id, row);
+      return;
+    }
+    const rem = closest('.remove-btn, [data-action="remove"], [data-role="remove"]');
+    if (rem) {
+      ev.preventDefault();
+      this._handleRemoveClick(id);
+    }
+  }
+  _handleGridInput(ev) {
+    const input = ev.target;
+    if (!input) return;
+    if (!(input.matches && (input.matches(".qty-input") || input.matches('[data-role="qty-input"]') || input.matches('input[type="number"]')))) {
+      return;
+    }
+    const row = this._findRowFromElement(input);
+    if (!row) return;
+    const id = this._getIdFromRow(row);
+    if (!id) return;
+    let v = parseInt(input.value, 10);
+    if (isNaN(v) || v < 1) v = 1;
+    const max = parseInt(input.getAttribute("max") || "0", 10);
+    if (Number.isFinite(max) && max > 0 && v > max) v = max;
+    if (this.changeQty(id, v, { sourceRow: row })) {
+      this.updateCartUI(id);
+    }
+  }
+  _handleFavClick(id, row) {
+    if (!this.favorites) {
+      this.notifications?.show?.(this._msg("FAVORITES_UNAVAILABLE"), { type: "error" });
+      return;
+    }
+    try {
+      let res;
+      if (typeof this.favorites.toggle === "function") {
+        res = this.favorites.toggle(id);
+      } else if (typeof this.favorites.add === "function" && typeof this.favorites.remove === "function") {
+        const now = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
+        res = now ? this.favorites.remove(id) : this.favorites.add(id);
+      }
+      const favBtnEl = row.querySelector && row.querySelector(".fav-btn");
+      const isFavNow = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
+      if (favBtnEl) {
+        favBtnEl.classList.toggle("is-fav", isFavNow);
+        favBtnEl.setAttribute("aria-pressed", String(isFavNow));
+      }
+      const wishEl = document.getElementById && document.getElementById("wishNum");
+      try {
+        if (wishEl && typeof this.favorites.getCount === "function") {
+          wishEl.textContent = String(this.favorites.getCount());
+        }
+      } catch (_) {
+      }
+      if (res && this._isThenable(res)) {
+        res.then(() => {
+          const finalFav = typeof this.favorites.isFavorite === "function" ? !!this.favorites.isFavorite(id) : false;
+          if (favBtnEl) favBtnEl.classList.toggle("is-fav", finalFav);
+          if (wishEl && typeof this.favorites.getCount === "function") {
+            wishEl.textContent = String(this.favorites.getCount());
+          }
+        }).catch((err) => this._logError("favorites operation failed", err));
+      }
+    } catch (e) {
+      this._logError("fav handling failed", e);
+    }
+  }
+  _handlePlusClick(id, row) {
+    const item = this._getCartItemById(id);
+    if (!item) return;
+    const stock = Number(item.stock || 0);
+    if (stock <= 0) {
+      this.notifications?.show?.(this._msg("PRODUCT_OUT_OF_STOCK"), { type: "warning" });
+      this._syncRowControls(row, item);
+      return;
+    }
+    if (item.qty < stock) {
+      if (this.changeQty(id, item.qty + 1, { sourceRow: row })) {
+        this.updateCartUI(id);
+      }
+    } else {
+      this.notifications?.show?.(this._msg("REACHED_MAX_STOCK_LIMIT_NOTIFY"), {
+        type: "warning"
+      });
+    }
+  }
+  _handleMinusClick(id, row) {
+    const item = this._getCartItemById(id);
+    if (!item) return;
+    if (item.qty > 1 && this.changeQty(id, item.qty - 1, { sourceRow: row })) {
+      this.updateCartUI(id);
+    }
+  }
+  _handleRemoveClick(id) {
+    if (this.remove(id)) {
+      this.updateCartUI(id);
     }
   }
   _detachGridListeners() {
@@ -3812,35 +3987,87 @@ var CartModule = class {
     this._gridInputHandler = null;
     this._gridListenersAttachedTo = null;
   }
-  // --- utilities for tests / reset / destroy ---
-  clear() {
-    for (const i of this.cart) this._noteChangedId(i.name);
-    this.cart = [];
-    this._rebuildIndex();
-    return this.updateCartUI();
-  }
-  _setCartForTest(cartArray) {
-    this.cart = Array.isArray(cartArray) ? cartArray.map((i) => Object.assign({}, i)) : [];
-    this._rebuildIndex();
-    this.cart.forEach((i) => this._noteChangedId(i.name));
-    return this.updateCartUI();
-  }
+  // ---------------------------------------------------------------------------
+  // Destroy
+  // ---------------------------------------------------------------------------
   destroy() {
-    if (this._saveTimeout) {
-      clearTimeout(this._saveTimeout);
-      this._saveTimeout = null;
-      try {
-        if (this.storage?.saveCart) this.storage.saveCart(this.cart);
-      } catch (e) {
-        this._logError("final save failed on destroy", e);
-      }
-    }
     this._detachGridListeners();
     try {
       if (this.miniCart?.destroy) this.miniCart.destroy();
     } catch (e) {
       this._logError("miniCart.destroy failed", e);
     }
+    this._destroyBase();
+  }
+};
+
+// ShopMatic/js/modules/Cart/CartModule.js
+var CartModule = class extends CartUI {
+  static UI_MESSAGES = Object.freeze({
+    NOT_ENOUGH_STOCK: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u0442\u043E\u0432\u0430\u0440\u0430 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435.",
+    ONLY_X_LEFT: "\u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438 \u0442\u043E\u043B\u044C\u043A\u043E {stock} \u0448\u0442.",
+    ADDED_TO_CART_HTML: '\u0422\u043E\u0432\u0430\u0440 ({title}) x{qty} \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443 <a href="#page/cart">\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443</a>',
+    ADDED_TO_CART_PLAIN: '\u0422\u043E\u0432\u0430\u0440 "{title}" x{qty} \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443.',
+    FAVORITES_UNAVAILABLE: "\u041C\u043E\u0434\u0443\u043B\u044C \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u043D\u0435\u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D.",
+    INSUFFICIENT_STOCK_ADD: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435. \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E: {max}.",
+    INSUFFICIENT_STOCK_CHANGEQTY: "\u041D\u0435\u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435. \u0414\u043E\u0441\u0442\u0443\u043F\u043D\u043E: {stock}.",
+    PRODUCT_OUT_OF_STOCK: "\u0422\u043E\u0432\u0430\u0440 \u043E\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434\u0435.",
+    REACHED_MAX_STOCK_LIMIT_NOTIFY: "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u044B\u0439 \u043B\u0438\u043C\u0438\u0442 \u043F\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0443.",
+    PRODUCT_LIMIT_DEFAULT: "\u0423 \u0432\u0430\u0441 \u0443\u0436\u0435 \u043C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0435",
+    PRODUCT_LIMIT_REACHED: "\u0412\u044B \u0434\u043E\u0441\u0442\u0438\u0433\u043B\u0438 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0430 \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430",
+    NO_STOCK_TEXT: "\u0422\u043E\u0432\u0430\u0440\u0430 \u043D\u0435\u0442 \u0432 \u043D\u0430\u043B\u0438\u0447\u0438\u0438"
+  });
+  constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
+    super({ storage, productService, renderer, notifications, favorites, opts });
+  }
+  /**
+   * Переопределяем add/remove/changeQty чтобы сразу дергать updateCartUI
+   * (поведение как у старой версии CartModule).
+   */
+  add(productId, qty = 1) {
+    const ok = super.add(productId, qty);
+    if (!ok) return false;
+    const id = this._normalizeId(productId);
+    const prod = this._resolveProduct(id);
+    try {
+      const title = prod && (prod.fullname || prod.title) ? prod.fullname || prod.title : id;
+      try {
+        this.notifications?.show?.(
+          this._msg("ADDED_TO_CART_HTML", { title, qty }),
+          { type: "success", allowHtml: true }
+        );
+      } catch (_) {
+        this.notifications?.show?.(
+          this._msg("ADDED_TO_CART_PLAIN", { title, qty }),
+          { type: "success" }
+        );
+      }
+    } catch (e) {
+      this._logError("notifications.show failed on add", e);
+    }
+    return this.updateCartUI();
+  }
+  remove(productId) {
+    const ok = super.remove(productId);
+    if (!ok) return false;
+    return this.updateCartUI(productId);
+  }
+  changeQty(productId, newQty, opts = {}) {
+    const ok = super.changeQty(productId, newQty, opts);
+    if (!ok) return false;
+    return this.updateCartUI(productId);
+  }
+  async loadFromStorage() {
+    await super.loadFromStorage();
+    return this.updateCartUI();
+  }
+  clear() {
+    super.clear();
+    return this.updateCartUI();
+  }
+  _setCartForTest(cartArray) {
+    super._setCartForTest(cartArray);
+    return this.updateCartUI();
   }
 };
 
@@ -4822,20 +5049,6 @@ var WishlistModule = class {
 
 // ShopMatic/js/modules/Gallery.js
 var Gallery = class {
-  /**
-   * Create a Gallery instance.
-   *
-   * The constructor mirrors the API of the original Gallery class but adds
-   * several optimizations:
-   *  - Uses a dedicated flag (`_navInitialized`) to avoid redundant nav
-   *    element creation and event binding in `_ensureNav()`.
-   *  - Tracks whether thumbnail handlers are bound via `_thumbHandlersBound` to
-   *    prevent attaching duplicate listeners on every re-render.
-   *
-   * @param {HTMLElement} rootEl The root element hosting the gallery.
-   * @param {Array|Object|string} images An array or data structure describing images.
-   * @param {Object} options Optional configuration.
-   */
   constructor(rootEl, images = [], options = {}) {
     if (!rootEl) throw new Error("Gallery root element required");
     const defaults = {
@@ -4918,17 +5131,14 @@ var Gallery = class {
       _onRootKey: (e) => this._onRootKey(e)
     };
     this._bindHandlers();
-    if (images != null) this.setImages(images, { showFirst: true, renderThumbs: this.options.renderThumbs });
+    if (images != null) {
+      this.setImages(images, {
+        showFirst: true,
+        renderThumbs: this.options.renderThumbs
+      });
+    }
   }
-  /**
-   * Register an event listener and track it for later removal.
-   *
-   * @param {HTMLElement} el Element to attach listener to.
-   * @param {string} evt Event name.
-   * @param {Function} fn Event handler.
-   * @param {Object} opts Optional addEventListener options.
-   * @returns {number|null} ID used for deregistration.
-   */
+  // --- generic listener helpers -------------------------------------------
   _addListener(el, evt, fn, opts = {}) {
     if (!el || !fn) return null;
     const id = ++this._listenerId;
@@ -4936,11 +5146,6 @@ var Gallery = class {
     this._listeners.set(id, { el, evt, fn, opts });
     return id;
   }
-  /**
-   * Remove a previously registered listener by id.
-   *
-   * @param {number} id ID returned by `_addListener()`.
-   */
   _removeListener(id) {
     const rec = this._listeners.get(id);
     if (!rec) return;
@@ -4950,23 +5155,10 @@ var Gallery = class {
     }
     this._listeners.delete(id);
   }
-  /**
-   * Remove all registered listeners. Useful during teardown.
-   */
   _removeAllListeners() {
-    for (const id of Array.from(this._listeners.keys())) this._removeListener(id);
+    for (const id of this._listeners.keys()) this._removeListener(id);
   }
-  /**
-   * Normalize a variety of input formats into a standardized array of image objects.
-   *
-   * This helper replicates the logic of the original Gallery class but has been
-   * slightly refactored for clarity. It accepts strings, arrays, or objects,
-   * attempts to parse JSON strings, and extracts `src`, `thumb`, and `alt`
-   * fields in a flexible manner.
-   *
-   * @param {Array|Object|string|null} images Input describing images.
-   * @returns {Array} Array of normalized image objects.
-   */
+  // --- images normalization ------------------------------------------------
   _normalizeImages(images) {
     if (images == null) return [];
     if (typeof images === "string") {
@@ -4974,14 +5166,16 @@ var Gallery = class {
       if (!s) return [];
       try {
         return this._normalizeImages(JSON.parse(s));
-      } catch (e) {
+      } catch (_) {
         return this._normalizeImages([s]);
       }
     }
     if (!Array.isArray(images) && typeof images === "object") {
       if (Array.isArray(images.images)) return this._normalizeImages(images.images);
       const maybe = ["gallery", "files", "pictures", "photos"];
-      for (const k of maybe) if (Array.isArray(images[k])) return this._normalizeImages(images[k]);
+      for (const k of maybe) {
+        if (Array.isArray(images[k])) return this._normalizeImages(images[k]);
+      }
       const single = this._extractSrc(images);
       return single ? [{ id: null, src: single, thumb: single, alt: "" }] : [];
     }
@@ -5003,13 +5197,6 @@ var Gallery = class {
     }
     return [];
   }
-  /**
-   * Normalize a single image item into an object with at least a `src` field.
-   *
-   * @param {any} item The item to normalize.
-   * @param {number} idx Index in the original array (if applicable).
-   * @returns {Object|null} A normalized image or null if invalid.
-   */
   _normalizeImageItem(item, idx = 0) {
     if (!item && item !== 0) return null;
     if (typeof item === "string") {
@@ -5027,9 +5214,11 @@ var Gallery = class {
       const fields = ["src", "url", "path", "file", "location", "image"];
       const thumbFields = ["thumb", "thumbnail", "preview"];
       let src = "";
-      for (const f of fields) if (item[f]) {
-        src = this._extractSrc(item[f]);
-        if (src) break;
+      for (const f of fields) {
+        if (item[f]) {
+          src = this._extractSrc(item[f]);
+          if (src) break;
+        }
       }
       if (!src) {
         const numericKeys = Object.keys(item).filter((k) => String(Number(k)) === k).sort((a, b) => Number(a) - Number(b));
@@ -5042,24 +5231,20 @@ var Gallery = class {
         }
       }
       let thumb = "";
-      for (const f of thumbFields) if (item[f]) {
-        thumb = this._extractSrc(item[f]);
-        if (thumb) break;
+      for (const f of thumbFields) {
+        if (item[f]) {
+          thumb = this._extractSrc(item[f]);
+          if (thumb) break;
+        }
       }
       if (!thumb) thumb = src || "";
+      if (!src) return null;
       const alt = item.alt || item.title || item.name || "";
       const id = item.id ?? item.key ?? null;
-      if (!src) return null;
       return { id, src, thumb, alt };
     }
     return null;
   }
-  /**
-   * Extract a source string from various possible structures (string, array, object).
-   *
-   * @param {any} val Input to extract from.
-   * @returns {string} Source string or empty if none found.
-   */
   _extractSrc(val) {
     if (val == null) return "";
     if (typeof val === "string") {
@@ -5068,7 +5253,7 @@ var Gallery = class {
       if (s[0] === "[" || s[0] === "{") {
         try {
           return this._extractSrc(JSON.parse(s));
-        } catch (e) {
+        } catch (_) {
           return s;
         }
       }
@@ -5083,31 +5268,30 @@ var Gallery = class {
     }
     if (typeof val === "object") {
       const fields = ["src", "url", "path", "file", "location", "thumb", "thumbnail"];
-      for (const f of fields) if (val[f]) {
-        const c = this._extractSrc(val[f]);
-        if (c) return c;
+      for (const f of fields) {
+        if (val[f]) {
+          const c = this._extractSrc(val[f]);
+          if (c) return c;
+        }
       }
       const ks = Object.keys(val).sort((a, b) => Number(a) - Number(b));
-      for (const k of ks) if (!isNaN(Number(k))) {
-        const c = this._extractSrc(val[k]);
-        if (c) return c;
+      for (const k of ks) {
+        if (!isNaN(Number(k))) {
+          const c = this._extractSrc(val[k]);
+          if (c) return c;
+        }
       }
       return "";
     }
     return "";
   }
-  /**
-   * Render thumbnail buttons based on current images.
-   *
-   * This method detaches any existing thumb listeners before regenerating the
-   * thumb elements. Event delegation is used for click and keyboard events
-   * to reduce the overhead of per-thumb listeners.
-   */
+  // --- thumbnails ----------------------------------------------------------
   renderThumbs() {
     if (!this._thumbContainer) return;
     this._unbindThumbHandlers();
     this._thumbContainer.innerHTML = "";
     const frag = document.createDocumentFragment();
+    const placeholder = this.options.placeholder || "";
     this.images.forEach((it, i) => {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -5119,7 +5303,7 @@ var Gallery = class {
       const img = document.createElement("img");
       img.loading = "lazy";
       img.decoding = "async";
-      img.src = it.thumb || it.src || this.options.placeholder || "";
+      img.src = it.thumb || it.src || placeholder;
       img.alt = it.alt || "";
       btn.appendChild(img);
       frag.appendChild(btn);
@@ -5130,63 +5314,51 @@ var Gallery = class {
     if (this.images.length) this._markActive(this.current);
     this._ensureThumbScroll();
   }
-  /**
-   * Collect current thumbnail elements.
-   */
   _collectThumbs() {
     if (this._thumbContainer) {
       this._thumbs = Array.from(this._thumbContainer.querySelectorAll(".gallery-thumb"));
-      if (!this._thumbs.length) this._thumbs = Array.from(this.root.querySelectorAll(this.options.thumbSelector));
+      if (!this._thumbs.length) {
+        this._thumbs = Array.from(this.root.querySelectorAll(this.options.thumbSelector));
+      }
     } else {
       this._thumbs = Array.from(this.root.querySelectorAll(this.options.thumbSelector));
     }
   }
-  /**
-   * Ensure thumbnails have the correct source and attributes after a refresh.
-   */
   _normalizeThumbSrcs() {
     const placeholder = this.options.placeholder || "";
     this._thumbs.forEach((t, i) => {
-      try {
-        let img = t.querySelector("img");
-        const expected = this.images[i] && (this.images[i].thumb || this.images[i].src) || placeholder;
-        t.dataset.index = String(i);
-        if (img) {
-          if (!img.src || img.src !== expected) img.src = expected;
-          if (!img.alt) img.alt = this.images[i]?.alt || "";
-        } else {
-          img = document.createElement("img");
-          img.loading = "lazy";
-          img.decoding = "async";
-          img.src = expected;
-          img.alt = this.images[i]?.alt || "";
-          t.appendChild(img);
-        }
-      } catch (e) {
+      const imgData = this.images[i];
+      if (!imgData) return;
+      const expected = imgData.thumb || imgData.src || placeholder;
+      let img = t.querySelector("img");
+      t.dataset.index = String(i);
+      if (img) {
+        if (!img.src || img.src !== expected) img.src = expected;
+        if (!img.alt) img.alt = imgData.alt || "";
+      } else {
+        img = document.createElement("img");
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = expected;
+        img.alt = imgData.alt || "";
+        t.appendChild(img);
       }
     });
   }
-  /**
-   * Public method to set new images on the gallery. Optionally re-renders
-   * thumbnails and shows the first image immediately.
-   *
-   * @param {Array|Object|string} images The new images to display.
-   * @param {Object} opts Options controlling behaviour.
-   */
   setImages(images, { showFirst = true, renderThumbs = true } = {}) {
     this._unbindThumbHandlers();
     this.images = this._normalizeImages(images);
-    if (renderThumbs && this._thumbContainer) this.renderThumbs();
-    else {
+    if (renderThumbs && this._thumbContainer) {
+      this.renderThumbs();
+    } else {
       this._collectThumbs();
       this._normalizeThumbSrcs();
       this._bindThumbHandlers();
     }
-    if (this.images.length && showFirst) this.show(0, { emit: false });
+    if (this.images.length && showFirst) {
+      this.show(0, { emit: false });
+    }
   }
-  /**
-   * Refresh the gallery in-place, re-binding thumb handlers and scroll logic.
-   */
   refresh() {
     this._unbindThumbHandlers();
     this._collectThumbs();
@@ -5194,13 +5366,7 @@ var Gallery = class {
     this._bindThumbHandlers();
     this._ensureThumbScroll();
   }
-  /**
-   * Determine the direction of transition based on previous and target indices.
-   *
-   * @param {number} prev Previous index.
-   * @param {number} index Target index.
-   * @returns {string} 'left', 'right', or 'none'.
-   */
+  // --- navigation / show ---------------------------------------------------
   _getDirection(prev, index) {
     const n = this.images.length;
     if (!Number.isFinite(prev) || prev < 0 || prev === index || n <= 1) return "none";
@@ -5209,21 +5375,17 @@ var Gallery = class {
     const backward = (prev - index + n) % n;
     return forward <= backward ? "right" : "left";
   }
-  /**
-   * Display a specific image by index or from a thumbnail element. Performs
-   * animated transitions when appropriate.
-   *
-   * @param {number|HTMLElement} indexOrThumb Index or thumb element.
-   * @param {Object} options Options controlling emission of events.
-   */
   show(indexOrThumb, options = {}) {
     if (!this.images.length) return;
     let index;
-    if (typeof indexOrThumb === "number") index = this._clampIndex(indexOrThumb);
-    else if (indexOrThumb && indexOrThumb.dataset && indexOrThumb.dataset.index) {
+    if (typeof indexOrThumb === "number") {
+      index = this._clampIndex(indexOrThumb);
+    } else if (indexOrThumb?.dataset?.index) {
       const di = Number(indexOrThumb.dataset.index);
       index = Number.isFinite(di) ? this._clampIndex(di) : this._clampIndex(this._thumbs.indexOf(indexOrThumb));
-    } else index = this._clampIndex(0);
+    } else {
+      index = this._clampIndex(0);
+    }
     const item = this.images[index];
     const src = item?.src;
     if (!src) return;
@@ -5239,9 +5401,13 @@ var Gallery = class {
       else t.removeAttribute("aria-current");
       t.dataset.index = String(i);
     });
-    if (this.modal && !this.modal.hidden && this.modalImg) this.modalImg.src = src;
+    if (this.modal && !this.modal.hidden && this.modalImg) {
+      this.modalImg.src = src;
+    }
     this._preload(index);
-    if (options.emit !== false) this._emit("gallery:change", { index, src, item });
+    if (options.emit !== false) {
+      this._emit("gallery:change", { index, src, item });
+    }
     this._markActive(index);
     this._ensureThumbVisible(index);
     if (!this.mainImg || !this.mainFrame || direction === "none" || this.options.animation !== "slide") {
@@ -5249,8 +5415,7 @@ var Gallery = class {
       return;
     }
     if (this._animating) {
-      const prevTmp = this._tmpImage;
-      if (prevTmp && prevTmp.parentNode) prevTmp.parentNode.removeChild(prevTmp);
+      if (this._tmpImage?.parentNode) this._tmpImage.parentNode.removeChild(this._tmpImage);
       this._animating = false;
       this._tmpImage = null;
       try {
@@ -5261,13 +5426,6 @@ var Gallery = class {
     }
     this._doAnimatedSwap(index, direction);
   }
-  /**
-   * Swap the main image without animation.
-   *
-   * @param {string} src Source URL.
-   * @param {number} index Target index.
-   * @param {Object} item Image object containing alt text.
-   */
   _simpleSwap(src, index, item) {
     if (!this.mainImg) return;
     this.mainImg.classList.add("is-loading");
@@ -5291,12 +5449,6 @@ var Gallery = class {
       if (this.mainImg.complete) onLoad();
     }, this.options.transitionMs);
   }
-  /**
-   * Perform an animated image swap using temporary overlay image.
-   *
-   * @param {number} index Target index.
-   * @param {string} direction 'left' or 'right'.
-   */
   _doAnimatedSwap(index, direction) {
     const item = this.images[index];
     const src = item?.src;
@@ -5327,6 +5479,19 @@ var Gallery = class {
     this.mainImg.style.transform = "translateX(0)";
     this.mainImg.style.opacity = "1";
     this.mainFrame.appendChild(tmp);
+    const cleanup = () => {
+      if (tmp.parentNode) tmp.parentNode.removeChild(tmp);
+      this.mainImg.style.transition = "";
+      this.mainImg.style.transform = "translateX(0)";
+      this.mainImg.style.opacity = "1";
+      this.mainImg.src = src;
+      this.mainImg.dataset.index = String(index);
+      this.mainImg.alt = item.alt || "";
+      this.mainImg.classList.remove("is-loading");
+      this._emit("gallery:loaded", { index, src });
+      this._animating = false;
+      this._tmpImage = null;
+    };
     const handleLoad = () => {
       tmp.removeEventListener("load", handleLoad);
       tmp.offsetHeight;
@@ -5336,22 +5501,6 @@ var Gallery = class {
         this.mainImg.style.opacity = "0";
         tmp.style.transform = "translateX(0%)";
       });
-      const cleanup = () => {
-        try {
-          if (tmp.parentNode) tmp.parentNode.removeChild(tmp);
-        } catch (e) {
-        }
-        this.mainImg.style.transition = "";
-        this.mainImg.style.transform = "translateX(0)";
-        this.mainImg.style.opacity = "1";
-        this.mainImg.src = src;
-        this.mainImg.dataset.index = String(index);
-        this.mainImg.alt = item.alt || "";
-        this.mainImg.classList.remove("is-loading");
-        this._emit("gallery:loaded", { index, src });
-        this._animating = false;
-        this._tmpImage = null;
-      };
       const onTransEnd = (e) => {
         if (e && e.target !== tmp) return;
         tmp.removeEventListener("transitionend", onTransEnd);
@@ -5359,13 +5508,12 @@ var Gallery = class {
       };
       tmp.addEventListener("transitionend", onTransEnd);
       setTimeout(() => {
-        if (this._animating) {
-          try {
-            tmp.removeEventListener("transitionend", onTransEnd);
-          } catch (e) {
-          }
-          cleanup();
+        if (!this._animating) return;
+        try {
+          tmp.removeEventListener("transitionend", onTransEnd);
+        } catch (e) {
         }
+        cleanup();
       }, this._animDuration + 70);
     };
     const handleError = () => {
@@ -5380,37 +5528,26 @@ var Gallery = class {
     tmp.addEventListener("error", handleError, { once: true });
     tmp.src = src;
   }
-  /**
-   * Ensure the active thumbnail is visible within the scrollable container.
-   *
-   * @param {number} index Index of the active thumbnail.
-   */
   _ensureThumbVisible(index) {
-    if (!this._thumbContainer || !this._thumbs || !this._thumbs[index]) return;
+    if (!this._thumbContainer || !this._thumbs?.[index]) return;
     const el = this._thumbs[index];
     const container = this._thumbContainer;
     const elTop = el.offsetTop;
     const elBottom = elTop + el.offsetHeight;
     const viewTop = container.scrollTop;
-    const viewBottom = viewTop + container.clientHeight;
-    if (elTop < viewTop) container.scrollTo({ top: elTop - 8, behavior: "smooth" });
-    else if (elBottom > viewBottom) container.scrollTo({ top: elBottom - container.clientHeight + 8, behavior: "smooth" });
+    const viewBot = viewTop + container.clientHeight;
+    if (elTop < viewTop) {
+      container.scrollTo({ top: elTop - 8, behavior: "smooth" });
+    } else if (elBottom > viewBot) {
+      container.scrollTo({ top: elBottom - container.clientHeight + 8, behavior: "smooth" });
+    }
   }
-  /**
-   * Navigate to the next image.
-   */
   next() {
     this.show(this._clampIndex(this.current + 1));
   }
-  /**
-   * Navigate to the previous image.
-   */
   prev() {
     this.show(this._clampIndex(this.current - 1));
   }
-  /**
-   * Open the modal view of the gallery.
-   */
   openModal() {
     if (!this.modal || !this.modalImg) return;
     const src = this.images[this.current]?.src || this.mainImg?.src;
@@ -5423,23 +5560,18 @@ var Gallery = class {
     this._emit("gallery:open", { index: this.current, src });
     if (this.options.nav) this._ensureNav();
   }
-  /**
-   * Close the modal view.
-   */
   closeModal() {
     if (!this.modal) return;
     this.modal.hidden = true;
     if (this.modalImg) this.modalImg.src = "";
     document.documentElement.style.overflow = "";
     this._releaseFocusTrap();
-    if (this._lastFocused && typeof this._lastFocused.focus === "function") this._lastFocused.focus();
+    if (this._lastFocused && typeof this._lastFocused.focus === "function") {
+      this._lastFocused.focus();
+    }
     this.modal.setAttribute("aria-hidden", "true");
     this._emit("gallery:close", { index: this.current });
   }
-  /**
-   * Fully destroy the gallery instance, unbinding all listeners and
-   * nullifying internal references.
-   */
   destroy() {
     this._removeAllListeners();
     if (this._thumbScrollBtn) {
@@ -5456,54 +5588,47 @@ var Gallery = class {
       }
       this._thumbScrollObserver = null;
     }
-    if (this._thumbScrollRAF) cancelAnimationFrame(this._thumbScrollRAF);
-    if (this._dragRAF) cancelAnimationFrame(this._dragRAF);
+    if (this._thumbScrollRAF) {
+      cancelAnimationFrame(this._thumbScrollRAF);
+      this._thumbScrollRAF = null;
+    }
     if (this._suppressClickTimer) {
       clearTimeout(this._suppressClickTimer);
       this._suppressClickTimer = null;
     }
-    if (this._tmpImage && this._tmpImage.parentNode) try {
-      this._tmpImage.parentNode.removeChild(this._tmpImage);
-    } catch (e) {
+    if (this._tmpImage?.parentNode) {
+      try {
+        this._tmpImage.parentNode.removeChild(this._tmpImage);
+      } catch (e) {
+      }
     }
     this._tmpImage = null;
     this._thumbs = [];
     this.images = [];
     this.mainImg = null;
+    this.mainFrame = null;
     this.modal = null;
     this.modalImg = null;
   }
-  /**
-   * Handler for clicks on the main image area. Opens the modal unless click
-   * suppression is in effect (e.g., after a drag gesture).
-   *
-   * @param {Event} e The click event.
-   */
+  // --- root handlers / bindings -------------------------------------------
   _onMainClick(e) {
     if (this._suppressClick) {
       e.preventDefault();
-      if (e.stopPropagation) e.stopPropagation();
+      e.stopPropagation?.();
       return;
     }
     if (e.target.closest && e.target.closest("button, a, input")) return;
     this.openModal();
   }
-  /**
-   * Root-level key handling for navigating images.
-   *
-   * @param {KeyboardEvent} e Key event.
-   */
   _onRootKey(e) {
     if (this.modal && !this.modal.hidden) return;
     if (e.key === "ArrowRight") this.next();
     if (e.key === "ArrowLeft") this.prev();
   }
-  /**
-   * Attach core handlers to the main frame, root element, and modal. Also
-   * initiates swipe handling on the main frame.
-   */
   _bindHandlers() {
-    if (this.mainFrame) this._addListener(this.mainFrame, "click", this._bound._onMainClick);
+    if (this.mainFrame) {
+      this._addListener(this.mainFrame, "click", this._bound._onMainClick);
+    }
     if (this.modal) {
       const closeBtn = this.modal.querySelector(".gallery-close");
       const overlay = this.modal.querySelector(".gallery-modal-overlay");
@@ -5520,14 +5645,8 @@ var Gallery = class {
     this._addListener(this.root, "keydown", (e) => this._onRootKey(e));
     if (!this.root.hasAttribute("tabindex")) this.root.setAttribute("tabindex", "0");
   }
-  /**
-   * Attach delegated handlers for thumbnails. Ensures that handlers are
-   * bound only once per instance, even if called multiple times via
-   * `renderThumbs()` or `refresh()`.
-   */
   _bindThumbHandlers() {
-    if (this._thumbHandlersBound) return;
-    if (!this._thumbContainer) return;
+    if (this._thumbHandlersBound || !this._thumbContainer) return;
     const clickHandler = (e) => {
       const btn = e.target.closest(".gallery-thumb");
       if (!btn) return;
@@ -5542,7 +5661,9 @@ var Gallery = class {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         this.show(btn);
+        return;
       }
+      if (!this._thumbs.length) return;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
         e.preventDefault();
         const next = this._thumbs[(i + 1) % this._thumbs.length];
@@ -5562,10 +5683,6 @@ var Gallery = class {
       if (!thumb.hasAttribute("tabindex")) thumb.tabIndex = 0;
     });
   }
-  /**
-   * Remove delegated thumbnail handlers. This cleans up only the handlers
-   * attached to the thumb container to avoid removing unrelated listeners.
-   */
   _unbindThumbHandlers() {
     if (!this._thumbHandlersBound) return;
     if (this._thumbClickListenerId) this._removeListener(this._thumbClickListenerId);
@@ -5574,9 +5691,6 @@ var Gallery = class {
     this._thumbKeyListenerId = null;
     this._thumbHandlersBound = false;
   }
-  /**
-   * Bind pointer and touch swipe handlers for navigation on the main frame.
-   */
   _bindPointerSwipe() {
     if (!this.mainFrame) return;
     const down = (e) => {
@@ -5592,7 +5706,7 @@ var Gallery = class {
       this._drag.direction = null;
       this._drag.moved = false;
       try {
-        e.currentTarget && e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
+        e.currentTarget?.setPointerCapture?.(e.pointerId);
       } catch (_) {
       }
       document.body.style.userSelect = "none";
@@ -5602,9 +5716,11 @@ var Gallery = class {
       const dx = e.clientX - this._drag.startX;
       const dy = e.clientY - this._drag.startY;
       if (!this._drag.moved && Math.abs(dx) > 6) this._drag.moved = true;
-      if (!this._drag.direction && Math.abs(dx) > 6) this._drag.direction = dx < 0 ? "left" : "right";
+      if (!this._drag.direction && Math.abs(dx) > 6) {
+        this._drag.direction = dx < 0 ? "left" : "right";
+      }
       this._drag.lastDX = dx;
-      const width = this.mainFrame.clientWidth || this.mainImg.clientWidth || window.innerWidth / 2;
+      const width = this.mainFrame.clientWidth || this.mainImg?.clientWidth || window.innerWidth / 2;
       const sign = dx < 0 ? -1 : 1;
       const targetIdx = this._clampIndex(this.current + (sign < 0 ? 1 : -1));
       if (this.images.length <= 1 || targetIdx === this.current) {
@@ -5613,9 +5729,11 @@ var Gallery = class {
         return;
       }
       if (this._drag.targetIndex !== targetIdx || !this._tmpImage) {
-        if (this._tmpImage && this._tmpImage.parentNode) try {
-          this._tmpImage.parentNode.removeChild(this._tmpImage);
-        } catch (_) {
+        if (this._tmpImage?.parentNode) {
+          try {
+            this._tmpImage.parentNode.removeChild(this._tmpImage);
+          } catch (_) {
+          }
         }
         const tmp = document.createElement("img");
         this._tmpImage = tmp;
@@ -5628,7 +5746,7 @@ var Gallery = class {
           left: "0",
           width: "100%",
           height: "100%",
-          objectFit: this.mainImg.style.objectFit || "contain",
+          objectFit: this.mainImg?.style.objectFit || "contain",
           transition: "none",
           zIndex: "2",
           willChange: "transform, opacity"
@@ -5637,19 +5755,19 @@ var Gallery = class {
         tmp.style.transform = `translateX(${initialOffset}px)`;
         this.mainFrame.appendChild(tmp);
         const candidate = this.images[targetIdx];
-        if (candidate && candidate.src) tmp.src = candidate.src;
+        if (candidate?.src) tmp.src = candidate.src;
         this._drag.targetIndex = targetIdx;
       }
       this._applyDragTransforms(dx, this._tmpImage, width);
-      if (Math.abs(dx) > 8) e.preventDefault && e.preventDefault();
+      if (Math.abs(dx) > 8) e.preventDefault?.();
     };
     const up = (e) => {
       if (!this._drag.active || e && e.pointerId !== void 0 && e.pointerId !== this._drag.pointerId) return;
       const dx = this._drag.lastDX;
       const abs = Math.abs(dx);
-      const width = this.mainFrame.clientWidth || this.mainImg.clientWidth || window.innerWidth / 2;
+      const width = this.mainFrame.clientWidth || this.mainImg?.clientWidth || window.innerWidth / 2;
       try {
-        e.currentTarget && e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId);
+        e.currentTarget?.releasePointerCapture?.(e.pointerId);
       } catch (_) {
       }
       document.body.style.userSelect = "";
@@ -5679,7 +5797,7 @@ var Gallery = class {
     const cancel = (e) => {
       if (!this._drag.active) return;
       try {
-        e.currentTarget && e.currentTarget.releasePointerCapture && e.currentTarget.releasePointerCapture(e.pointerId);
+        e.currentTarget?.releasePointerCapture?.(e.pointerId);
       } catch (_) {
       }
       document.body.style.userSelect = "";
@@ -5699,105 +5817,112 @@ var Gallery = class {
     this._addListener(this.mainFrame, "pointerup", up);
     this._addListener(this.mainFrame, "pointercancel", cancel);
     const touchStart = (e) => {
-      const t = e.touches && e.touches[0];
+      const t = e.touches?.[0];
       if (!t) return;
-      down({ pointerId: "touch", clientX: t.clientX, clientY: t.clientY, currentTarget: this.mainFrame, target: e.target, button: 0 });
+      down({
+        pointerId: "touch",
+        clientX: t.clientX,
+        clientY: t.clientY,
+        currentTarget: this.mainFrame,
+        target: e.target,
+        button: 0
+      });
     };
     const touchMove = (e) => {
-      const t = e.touches && e.touches[0];
+      const t = e.touches?.[0];
       if (!t) return;
-      move({ pointerId: "touch", clientX: t.clientX, clientY: t.clientY, currentTarget: this.mainFrame, target: e.target, preventDefault: () => e.preventDefault() });
+      move({
+        pointerId: "touch",
+        clientX: t.clientX,
+        clientY: t.clientY,
+        currentTarget: this.mainFrame,
+        target: e.target,
+        preventDefault: () => e.preventDefault()
+      });
     };
     const touchEnd = (e) => {
-      const t = e.changedTouches && e.changedTouches[0] || null;
-      up({ pointerId: "touch", clientX: t ? t.clientX : 0, clientY: t ? t.clientY : 0, currentTarget: this.mainFrame, target: e.target });
+      const t = e.changedTouches?.[0] || null;
+      up({
+        pointerId: "touch",
+        clientX: t ? t.clientX : 0,
+        clientY: t ? t.clientY : 0,
+        currentTarget: this.mainFrame,
+        target: e.target
+      });
     };
     this._addListener(this.mainFrame, "touchstart", touchStart, { passive: true });
     this._addListener(this.mainFrame, "touchmove", touchMove, { passive: false });
     this._addListener(this.mainFrame, "touchend", touchEnd, { passive: true });
   }
-  /**
-   * Apply drag transforms to the main image and optional temporary image during swipe.
-   *
-   * @param {number} dx Horizontal delta.
-   * @param {HTMLElement|null} tmpEl The temporary image element.
-   * @param {number} width Width of the swipe area.
-   */
   _applyDragTransforms(dx, tmpEl, width) {
     if (!this.mainImg) return;
-    const resistance = this._drag.active && Math.abs(dx) > width * 0.6 ? width * 0.6 * Math.sign(dx) : dx;
+    const maxOffset = width * 0.6;
+    const limited = Math.abs(dx) > maxOffset ? maxOffset * Math.sign(dx) : dx;
     this.mainImg.style.transition = "none";
-    this.mainImg.style.transform = `translateX(${resistance}px)`;
-    this.mainImg.style.opacity = String(Math.max(0.35, 1 - Math.abs(resistance) / (width * 1.2)));
-    if (tmpEl) {
-      tmpEl.style.transition = "none";
-      const sign = resistance < 0 ? 1 : -1;
-      const baseOffset = sign > 0 ? width : -width;
-      tmpEl.style.transform = `translateX(${baseOffset + resistance}px)`;
-      tmpEl.style.opacity = "1";
-    }
+    this.mainImg.style.transform = `translateX(${limited}px)`;
+    this.mainImg.style.opacity = String(Math.max(0.35, 1 - Math.abs(limited) / (width * 1.2)));
+    if (!tmpEl) return;
+    tmpEl.style.transition = "none";
+    const sign = limited < 0 ? 1 : -1;
+    const baseOffset = sign > 0 ? width : -width;
+    tmpEl.style.transform = `translateX(${baseOffset + limited}px)`;
+    tmpEl.style.opacity = "1";
   }
-  /**
-   * Roll back a drag gesture when it doesn't meet the threshold to change images.
-   */
   _animateDragRollback() {
     if (!this.mainImg) return;
-    this.mainImg.style.transition = `transform ${Math.round(this._animDuration / 1.5)}ms ease, opacity ${Math.round(this._animDuration / 2)}ms ease`;
+    const dur = Math.round(this._animDuration / 1.5);
+    const opDur = Math.round(this._animDuration / 2);
+    this.mainImg.style.transition = `transform ${dur}ms ease, opacity ${opDur}ms ease`;
     this.mainImg.style.transform = "translateX(0)";
     this.mainImg.style.opacity = "1";
-    if (this._tmpImage) {
-      const tmp = this._tmpImage;
-      tmp.style.transition = `transform ${Math.round(this._animDuration / 1.5)}ms ease, opacity ${Math.round(this._animDuration / 2)}ms ease`;
-      const width = this.mainFrame.clientWidth || this.mainImg.clientWidth || window.innerWidth / 2;
-      const currentTransform = this._getTranslateXValue(tmp);
-      const sign = currentTransform >= 0 ? 1 : -1;
-      const final = sign > 0 ? width : -width;
-      tmp.style.transform = `translateX(${final}px)`;
-      tmp.style.opacity = "0";
-      const cleanup = () => {
-        if (tmp.parentNode) try {
+    if (!this._tmpImage) return;
+    const tmp = this._tmpImage;
+    const width = this.mainFrame?.clientWidth || this.mainImg.clientWidth || window.innerWidth / 2;
+    const cur = this._getTranslateXValue(tmp);
+    const sign = cur >= 0 ? 1 : -1;
+    const final = sign > 0 ? width : -width;
+    tmp.style.transition = `transform ${dur}ms ease, opacity ${opDur}ms ease`;
+    tmp.style.transform = `translateX(${final}px)`;
+    tmp.style.opacity = "0";
+    const cleanup = () => {
+      if (tmp.parentNode) {
+        try {
           tmp.parentNode.removeChild(tmp);
         } catch (e) {
         }
-        if (this._tmpImage === tmp) this._tmpImage = null;
-      };
-      tmp.addEventListener("transitionend", function once() {
-        tmp.removeEventListener("transitionend", once);
-        cleanup();
-      });
-      setTimeout(cleanup, this._animDuration + 120);
-    }
+      }
+      if (this._tmpImage === tmp) this._tmpImage = null;
+    };
+    tmp.addEventListener("transitionend", function once() {
+      tmp.removeEventListener("transitionend", once);
+      cleanup();
+    });
+    setTimeout(cleanup, dur + 120);
   }
-  /**
-   * Complete a drag gesture by animating to the next or previous image.
-   *
-   * @param {number} sign Direction sign (-1 or 1).
-   * @param {number} targetIdx Target index.
-   * @param {number} dx Delta x.
-   * @param {number} width Width of the swipe area.
-   */
   _animateDragToComplete(sign, targetIdx, dx, width) {
-    if (!this.mainImg) return;
-    if (this._animating) return;
+    if (!this.mainImg || this._animating) return;
     this._animating = true;
     const tmp = this._tmpImage;
     const dur = Math.round(this._animDuration * 0.9);
-    this.mainImg.style.transition = `transform ${dur}ms cubic-bezier(.2,.9,.2,1), opacity ${Math.round(dur / 2)}ms ease`;
+    const opDur = Math.round(dur / 2);
+    this.mainImg.style.transition = `transform ${dur}ms cubic-bezier(.2,.9,.2,1), opacity ${opDur}ms ease`;
     this.mainImg.style.transform = `translateX(${sign < 0 ? -width : width}px)`;
     this.mainImg.style.opacity = "0";
     if (tmp) {
-      tmp.style.transition = `transform ${dur}ms cubic-bezier(.2,.9,.2,1), opacity ${Math.round(dur / 2)}ms ease`;
+      tmp.style.transition = `transform ${dur}ms cubic-bezier(.2,.9,.2,1), opacity ${opDur}ms ease`;
       tmp.style.transform = "translateX(0px)";
       tmp.style.opacity = "1";
     }
     const finish = () => {
-      if (tmp && tmp.parentNode) try {
-        tmp.parentNode.removeChild(tmp);
-      } catch (e) {
+      if (tmp?.parentNode) {
+        try {
+          tmp.parentNode.removeChild(tmp);
+        } catch (e) {
+        }
       }
       this._tmpImage = null;
       const item = this.images[targetIdx];
-      if (item && item.src) {
+      if (item?.src) {
         this.mainImg.src = item.src;
         this.mainImg.dataset.index = String(targetIdx);
         this.mainImg.alt = item.alt || "";
@@ -5822,22 +5947,15 @@ var Gallery = class {
     };
     this.mainImg.addEventListener("transitionend", onEnd);
     setTimeout(() => {
-      if (!handled) {
-        handled = true;
-        try {
-          this.mainImg.removeEventListener("transitionend", onEnd);
-        } catch (e) {
-        }
-        finish();
+      if (handled) return;
+      handled = true;
+      try {
+        this.mainImg.removeEventListener("transitionend", onEnd);
+      } catch (e) {
       }
+      finish();
     }, dur + 150);
   }
-  /**
-   * Extract the current translateX value of an element. Used during drag rollback.
-   *
-   * @param {HTMLElement} el Element to inspect.
-   * @returns {number} The computed translateX value.
-   */
   _getTranslateXValue(el) {
     try {
       const s = getComputedStyle(el).transform;
@@ -5856,12 +5974,12 @@ var Gallery = class {
     }
     return 0;
   }
-  /**
-   * Trap keyboard focus within the modal when open.
-   */
+  // --- focus / modal nav ---------------------------------------------------
   _trapFocus() {
     if (!this.modal) return;
-    const focusables = this.modal.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])');
+    const focusables = this.modal.querySelectorAll(
+      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+    );
     this._focusables = Array.from(focusables);
     if (!this._focusables.length) return;
     this._modalKeyHandler = (e) => {
@@ -5879,25 +5997,18 @@ var Gallery = class {
     this.modal.addEventListener("keydown", this._modalKeyHandler);
     this._focusables[0].focus();
   }
-  /**
-   * Release focus trap when closing the modal.
-   */
   _releaseFocusTrap() {
     if (!this.modal || !this._modalKeyHandler) return;
     this.modal.removeEventListener("keydown", this._modalKeyHandler);
     this._modalKeyHandler = null;
     this._focusables = null;
   }
-  /**
-   * Ensure navigation buttons exist in the modal. Only binds events once
-   * per instance, preventing listener duplication. Called on first
-   * `openModal()` if navigation is enabled.
-   */
   _ensureNav() {
     if (!this.modal || this._navInitialized) return;
     const modalContent = this.modal.querySelector(".gallery-modal-content") || this.modal;
     if (!modalContent) return;
-    if (!this.modal.querySelector(`.${this.options.navWrapperClass}`)) {
+    const existing = this.modal.querySelector(`.${this.options.navWrapperClass}`);
+    if (!existing) {
       const wrap = document.createElement("div");
       wrap.className = this.options.navWrapperClass;
       const prev = document.createElement("button");
@@ -5937,23 +6048,25 @@ var Gallery = class {
         }
       });
     } else {
-      this._navWrap = this.modal.querySelector(`.${this.options.navWrapperClass}`);
+      this._navWrap = existing;
       this._navPrev = this._navWrap.querySelector(`.${this.options.navPrevClass}`);
       this._navNext = this._navWrap.querySelector(`.${this.options.navNextClass}`);
-      if (this._navPrev) this._addListener(this._navPrev, "click", (e) => {
-        e.preventDefault();
-        this.prev();
-      });
-      if (this._navNext) this._addListener(this._navNext, "click", (e) => {
-        e.preventDefault();
-        this.next();
-      });
+      if (this._navPrev) {
+        this._addListener(this._navPrev, "click", (e) => {
+          e.preventDefault();
+          this.prev();
+        });
+      }
+      if (this._navNext) {
+        this._addListener(this._navNext, "click", (e) => {
+          e.preventDefault();
+          this.next();
+        });
+      }
     }
     this._navInitialized = true;
   }
-  /**
-   * Manage the visibility of the thumbnail scroll button based on overflow.
-   */
+  // --- thumb scroll helper -------------------------------------------------
   _ensureThumbScroll() {
     if (!this._thumbContainer) return;
     if (!this._thumbScrollBtn) {
@@ -5971,39 +6084,35 @@ var Gallery = class {
       };
       this._addListener(btn, "click", this._thumbScrollHandler);
     }
-    const update = () => {
-      if (!this._thumbContainer) return;
-      const needsScroll = this._thumbContainer.scrollHeight > this._thumbContainer.clientHeight + 1;
-      if (!this._thumbScrollBtn) return;
-      const atBottom = this._thumbContainer.scrollTop + this._thumbContainer.clientHeight >= this._thumbContainer.scrollHeight - 2;
-      this._thumbScrollBtn.hidden = !needsScroll || atBottom;
-    };
     if (!this._thumbScrollAttached) {
-      this._addListener(this._thumbContainer, "scroll", () => {
-        if (this._thumbScrollRAF) cancelAnimationFrame(this._thumbScrollRAF);
-        this._thumbScrollRAF = requestAnimationFrame(update);
-      });
-      this._addListener(window, "resize", () => {
-        if (this._thumbScrollRAF) cancelAnimationFrame(this._thumbScrollRAF);
-        this._thumbScrollRAF = requestAnimationFrame(update);
-      });
+      this._addListener(this._thumbContainer, "scroll", () => this._scheduleThumbScrollUpdate());
+      this._addListener(window, "resize", () => this._scheduleThumbScrollUpdate());
       this._thumbScrollAttached = true;
     }
-    if (this._thumbScrollObserver) this._thumbScrollObserver.disconnect();
-    this._thumbScrollObserver = new MutationObserver(() => {
-      if (this._thumbScrollRAF) cancelAnimationFrame(this._thumbScrollRAF);
-      this._thumbScrollRAF = requestAnimationFrame(update);
-    });
+    if (this._thumbScrollObserver) {
+      this._thumbScrollObserver.disconnect();
+    }
+    this._thumbScrollObserver = new MutationObserver(() => this._scheduleThumbScrollUpdate());
     this._thumbScrollObserver.observe(this._thumbContainer, { childList: true, subtree: true });
-    requestAnimationFrame(update);
+    this._scheduleThumbScrollUpdate();
   }
-  /**
-   * Mark the active thumbnail. Updates ARIA attributes appropriately.
-   *
-   * @param {number} index Index of the active thumbnail.
-   */
+  _scheduleThumbScrollUpdate() {
+    if (this._thumbScrollRAF) cancelAnimationFrame(this._thumbScrollRAF);
+    this._thumbScrollRAF = requestAnimationFrame(() => this._updateThumbScrollState());
+  }
+  _updateThumbScrollState() {
+    if (!this._thumbContainer || !this._thumbScrollBtn) return;
+    const needsScroll = this._thumbContainer.scrollHeight > this._thumbContainer.clientHeight + 1;
+    if (!needsScroll) {
+      this._thumbScrollBtn.hidden = true;
+      return;
+    }
+    const atBottom = this._thumbContainer.scrollTop + this._thumbContainer.clientHeight >= this._thumbContainer.scrollHeight - 2;
+    this._thumbScrollBtn.hidden = atBottom;
+  }
+  // --- misc helpers --------------------------------------------------------
   _markActive(index) {
-    if (!this._thumbs || !this._thumbs.length) return;
+    if (!this._thumbs?.length) return;
     this._thumbs.forEach((t, i) => {
       const is = i === index;
       t.classList.toggle("active", is);
@@ -6011,35 +6120,18 @@ var Gallery = class {
       else t.removeAttribute("aria-current");
     });
   }
-  /**
-   * Dispatch a custom event on the root element.
-   *
-   * @param {string} name Event name.
-   * @param {Object} detail Event payload.
-   */
   _emit(name, detail = {}) {
     try {
       this.root.dispatchEvent(new CustomEvent(name, { detail }));
-    } catch (e) {
+    } catch (_) {
     }
   }
-  /**
-   * Clamp an index according to circular or non-circular behaviour.
-   *
-   * @param {number} idx Desired index.
-   * @returns {number} Clamped index.
-   */
   _clampIndex(idx) {
     const n = this.images.length;
-    if (n === 0) return 0;
+    if (!n) return 0;
     if (this.options.circular) return (idx % n + n) % n;
     return Math.max(0, Math.min(idx, n - 1));
   }
-  /**
-   * Preload adjacent images to improve perceived performance when navigating.
-   *
-   * @param {number} index Index of the current image.
-   */
   _preload(index) {
     const n = this.images.length;
     if (!n || this.options.preloadAdjacent <= 0) return;
@@ -6058,37 +6150,21 @@ var Gallery = class {
 
 // ShopMatic/js/modules/ProductPage.js
 var DEFAULT_MESSAGES = {
-  // Notification shown when attempting to add to cart but stock is zero
   addToCartDisabled: "\u041D\u0435\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C: \u043D\u0435\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0433\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0430.",
-  // Notification shown when an unexpected error occurs while adding to cart
   addToCartError: "\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0440\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0438 \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443",
-  // Notification shown after toggling favourite state to "added"
   favoriteAdded: "\u0422\u043E\u0432\u0430\u0440 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435",
-  // Notification shown after toggling favourite state to "removed"
   favoriteRemoved: "\u0422\u043E\u0432\u0430\u0440 \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E",
-  // Shown when wishlist module is missing
   wishlistNotConfigured: "\u0412\u0438\u0448\u043B\u0438\u0441\u0442 \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D",
-  // Notification shown after updating the wishlist
   wishlistUpdated: "\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0432 \u0432\u0438\u0448\u043B\u0438\u0441\u0442\u0435",
-  // Template for notifying maximum available quantity; {count} will be replaced with a number
   maxAvailableTemplate: "\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: {count}",
-  // Notification shown when an item is removed from the cart
   itemRemovedFromCart: "\u0422\u043E\u0432\u0430\u0440 \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 \u043A\u043E\u0440\u0437\u0438\u043D\u044B",
-  // Favourite button label when item is not in favourites
   favLabelAdd: '<i class="fa-heart fa-solid"></i> \u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435',
-  // Favourite button label when item is in favourites
   favLabelIn: '<i class="fa-heart fa-solid active"></i> \u0412 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u043C',
-  // Wishlist button label when item is not in wishlist
   wishlistLabelAdd: "\u0412 \u0432\u0438\u0448\u043B\u0438\u0441\u0442",
-  // Wishlist button label when item is in wishlist
   wishlistLabelIn: "\u0412 \u0432\u0438\u0448\u043B\u0438\u0441\u0442\u0435",
-  // Badge shown when product is in stock
   badgeInStock: "\u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438",
-  // Badge shown when product is on order/out of stock
   badgeOutOfStock: "\u041F\u043E\u0434 \u0437\u0430\u043A\u0430\u0437",
-  // Label for the "Add to cart" button
   addToCartButton: "\u0412 \u041A\u043E\u0440\u0437\u0438\u043D\u0443",
-  // Label for the button that navigates to the cart
   goToCartButton: "\u041A\u043E\u0440\u0437\u0438\u043D\u0430"
 };
 var ProductPage = class {
@@ -6120,7 +6196,7 @@ var ProductPage = class {
       cardTemplateKey: "cardVertical",
       ...rest
     };
-    this.messages = Object.assign({}, DEFAULT_MESSAGES, messages);
+    this.messages = { ...DEFAULT_MESSAGES, ...messages };
     this.debug = !!debug;
     this._stripeTimers = /* @__PURE__ */ new WeakMap();
     this.container = null;
@@ -6133,16 +6209,10 @@ var ProductPage = class {
       onQtyDecr: this._onQtyDecr.bind(this),
       onWishlistClick: this._onWishlistClick.bind(this),
       onBackClick: this._onBackClick.bind(this),
-      onCartUpdated: this._onCartUpdated.bind(this)
+      onCartUpdated: this._onCartUpdated.bind(this),
+      onBuyNowClick: this._onBuyNowClick.bind(this)
     };
   }
-  /**
-   * Internal logger for ProductPage. When debug is enabled, messages passed
-   * to this method are forwarded to the shop's logger if available, or to
-   * console.debug otherwise. This helper helps avoid scattering debug
-   * conditionals throughout the code.
-   * @param {...any} args
-   */
   _log(...args) {
     if (!this.debug) return;
     try {
@@ -6152,11 +6222,6 @@ var ProductPage = class {
       console.debug("ProductPage:", ...args);
     }
   }
-  /**
-   * Initialize the product image gallery. This should be called after the
-   * DOM has rendered the gallery root element. It uses the Gallery class to
-   * display a carousel of product images.
-   */
   _initGallery() {
     if (!this.container) return;
     const galleryRoot = this.container.querySelector(".product-gallery");
@@ -6165,7 +6230,7 @@ var ProductPage = class {
     let photos = [];
     try {
       photos = Array.isArray(product.images) ? product.images.slice() : JSON.parse(product.picture || "[]");
-    } catch (_) {
+    } catch {
       photos = [];
     }
     try {
@@ -6174,15 +6239,6 @@ var ProductPage = class {
       console.warn("Gallery initialization failed", err);
     }
   }
-  /**
-   * Render the product page into the specified container. This method handles
-   * loading the product data, rendering the template, and wiring up UI
-   * interactions. It also renders related products.
-   *
-   * @param {string|number} productId - The unique identifier of the product
-   * @param {HTMLElement|string} container - DOM element or CSS selector where
-   *   the product page should be rendered
-   */
   async render(productId, container = this.shop.foxEngine.replaceData.contentBlock) {
     if (!this.pageTemplate) {
       const tplPath = `/templates/${this.shop.foxEngine.replaceData.template}/foxEngine/product/productPage.tpl`;
@@ -6206,13 +6262,13 @@ var ProductPage = class {
     }
     try {
       this.cart?.loadFromStorage?.();
-    } catch (_) {
+    } catch {
     }
     let html;
     try {
       html = await this._buildHtml(product);
       this.container.innerHTML = html;
-      this._log("render: HTML injected into container", productId);
+      this._log("render: HTML injected", productId);
     } catch (e) {
       console.error("_buildHtml error", e);
       await this._renderNotFound();
@@ -6232,20 +6288,12 @@ var ProductPage = class {
       console.error("_renderRelated error", e);
     }
   }
-  /**
-   * Remove event listeners and clear the current page state. Should be called
-   * when navigating away from the product page to avoid memory leaks.
-   */
   destroy() {
     if (!this.container) return;
     this._unbindListeners();
     this.container = null;
     this.currentProductId = null;
   }
-  /**
-   * Render a fallback page when the product is not found. This method also
-   * binds the back button to allow navigation to the previous page.
-   */
   async _renderNotFound() {
     if (!this.container) return;
     const tplPath = `/templates/${this.shop.foxEngine.replaceData.template}/foxEngine/product/notFound.tpl`;
@@ -6253,20 +6301,10 @@ var ProductPage = class {
     const back = this.container.querySelector('[data-action="back"]');
     back?.addEventListener("click", this._bound.onBackClick);
   }
-  /**
-   * Build the HTML for the product page based on the provided product data.
-   * This method normalizes image data, assembles template data, and then
-   * performs token replacement using the loaded template. If the host engine
-   * supports its own replacement function, it will be used; otherwise
-   * manual replacement is performed.
-   *
-   * @param {Object} p - Product data
-   * @returns {string} - HTML string
-   */
   async _buildHtml(p) {
     try {
       this.shop.storage.addViewed?.(p);
-    } catch (_) {
+    } catch {
     }
     const cartItem = Array.isArray(this.cart?.cart) ? this.cart.cart.find((item) => String(item.name) === String(p.name)) : null;
     const qtyFromCart = cartItem ? Number(cartItem.qty || 0) : 0;
@@ -6279,7 +6317,7 @@ var ProductPage = class {
     }).join("") : "";
     try {
       await this.productService.fetchCategories?.();
-    } catch (_) {
+    } catch {
     }
     const tplData = {
       name: p.name ?? "",
@@ -6293,7 +6331,6 @@ var ProductPage = class {
       images: photos,
       picture: p.picture ?? mainImage,
       discountPercent: "",
-      // reserved for future features
       thumbs: thumbsHtml,
       brandName: p.brandName ?? "",
       categoryName: p.categoryName ? `<small>${p.categoryName}</small>` : "",
@@ -6329,24 +6366,20 @@ var ProductPage = class {
     const noticesToken = "";
     return this.pageTemplate.replace(/\{name\}/g, nameToken).replace(/\{fullname\}/g, fullnameHtml).replace(/\{picture\}/g, pictureToken).replace(/\{price\}/g, priceToken).replace(/\{oldPrice\}/g, oldPriceToken).replace(/\{stock\}/g, stockToken).replace(/\{qty\}/g, qtyToken).replace(/\{specs\}/g, specsHtml).replace(/\{thumbs\}/g, thumbsToken).replace(/\{notices\}/g, noticesToken);
   }
-  /**
-   * Bind DOM event listeners to UI controls on the product page. Listeners are
-   * bound to specific selectors and use the pre-bound handler functions. The
-   * gallery is initialized after thumbs are rendered.
-   */
   _bindListeners() {
     if (!this.container) return;
-    const addListener = (selector, event, handler) => {
+    const add = (selector, event, handler) => {
       const el = this.container.querySelector(selector);
       if (el) el.addEventListener(event, handler);
     };
-    addListener('[data-action="add-to-cart"], .add-to-cart, .btn-yellow', "click", this._bound.onAddClick);
-    addListener(".fav-toggle", "click", this._bound.onFavClick);
-    addListener(".wishlist-toggle", "click", this._bound.onWishlistClick);
-    addListener(".qty-input", "input", this._bound.onQtyInput);
+    add('[data-action="add-to-cart"], .add-to-cart, .btn-yellow', "click", this._bound.onAddClick);
+    add(".fav-toggle", "click", this._bound.onFavClick);
+    add(".wishlist-toggle", "click", this._bound.onWishlistClick);
+    add(".qty-input", "input", this._bound.onQtyInput);
+    add('[data-action="back"]', "click", this._bound.onBackClick);
+    add('[data-action="buy-now"]', "click", this._bound.onBuyNowClick);
     this.container.querySelectorAll(".qty-incr").forEach((btn) => btn.addEventListener("click", this._bound.onQtyIncr));
     this.container.querySelectorAll(".qty-decr").forEach((btn) => btn.addEventListener("click", this._bound.onQtyDecr));
-    addListener('[data-action="back"]', "click", this._bound.onBackClick);
     this.container.querySelectorAll(".thumb-btn").forEach(
       (btn) => btn.addEventListener("click", (ev) => {
         const idx = parseInt(ev.currentTarget.getAttribute("data-thumb-index"), 10) || 0;
@@ -6370,28 +6403,25 @@ var ProductPage = class {
       console.warn("gallery init failed", e);
     }
   }
-  /**
-   * Unbind all event listeners from the DOM. Listeners are removed to prevent
-   * memory leaks and stale state when leaving the product page.
-   */
   _unbindListeners() {
     if (!this.container) return;
-    const removeListener = (selector, event, handler) => {
+    const remove = (selector, event, handler) => {
       const el = this.container.querySelector(selector);
       if (el) el.removeEventListener(event, handler);
     };
-    removeListener('[data-action="add-to-cart"], .add-to-cart, .btn-yellow', "click", this._bound.onAddClick);
-    removeListener(".fav-toggle", "click", this._bound.onFavClick);
-    removeListener(".wishlist-toggle", "click", this._bound.onWishlistClick);
-    removeListener(".qty-input", "input", this._bound.onQtyInput);
+    remove('[data-action="add-to-cart"], .add-to-cart, .btn-yellow', "click", this._bound.onAddClick);
+    remove(".fav-toggle", "click", this._bound.onFavClick);
+    remove(".wishlist-toggle", "click", this._bound.onWishlistClick);
+    remove(".qty-input", "input", this._bound.onQtyInput);
+    remove('[data-action="back"]', "click", this._bound.onBackClick);
+    remove('[data-action="buy-now"]', "click", this._bound.onBuyNowClick);
     this.container.querySelectorAll(".qty-incr").forEach((btn) => btn.removeEventListener("click", this._bound.onQtyIncr));
     this.container.querySelectorAll(".qty-decr").forEach((btn) => btn.removeEventListener("click", this._bound.onQtyDecr));
-    removeListener('[data-action="back"]', "click", this._bound.onBackClick);
     this.container.querySelectorAll(".thumb-btn").forEach((t) => t.replaceWith(t.cloneNode(true)));
     this.container.querySelectorAll(".size-btn").forEach((b) => b.replaceWith(b.cloneNode(true)));
     window.removeEventListener("cart:updated", this._bound.onCartUpdated);
   }
-  // Event handlers
+  // ===== events =====
   _onAddClick() {
     const pid = this.currentProductId;
     if (!pid) return;
@@ -6400,7 +6430,7 @@ var ProductPage = class {
       const qty = Math.max(1, parseInt(qtyEl?.value || "1", 10));
       const available = this.cart && typeof this.cart._computeAvailableStock === "function" ? this.cart._computeAvailableStock(pid) : this.productService.findById(pid)?.stock || 0;
       if (available <= 0) {
-        this.notifications.show("\u041D\u0435\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E \u0434\u043E\u0431\u0430\u0432\u0438\u0442\u044C: \u043D\u0435\u0442 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E\u0433\u043E \u043E\u0441\u0442\u0430\u0442\u043A\u0430.", { duration: 3e3 });
+        this.notifications.show(this.messages.addToCartDisabled, { duration: 3e3 });
         return;
       }
       const toAdd = Math.min(qty, available);
@@ -6408,7 +6438,7 @@ var ProductPage = class {
       this._syncQtyControls();
     } catch (err) {
       console.error("_onAddClick error", err);
-      this.notifications.show("\u041E\u0448\u0438\u0431\u043A\u0430 \u043F\u0440\u0438 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0438 \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0443", { duration: 3e3 });
+      this.notifications.show(this.messages.addToCartError, { duration: 3e3 });
     }
   }
   _onFavClick() {
@@ -6418,7 +6448,10 @@ var ProductPage = class {
       this.favorites.toggle(pid);
       this._syncFavButton();
       const isFav = this.favorites.isFavorite?.(pid);
-      this.notifications.show(isFav ? "\u0422\u043E\u0432\u0430\u0440 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0432 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0435" : "\u0422\u043E\u0432\u0430\u0440 \u0443\u0434\u0430\u043B\u0451\u043D \u0438\u0437 \u0438\u0437\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E", { duration: 1500 });
+      this.notifications.show(
+        isFav ? this.messages.favoriteAdded : this.messages.favoriteRemoved,
+        { duration: 1500 }
+      );
     } catch (err) {
       console.warn(err);
     }
@@ -6427,14 +6460,14 @@ var ProductPage = class {
     const pid = this.currentProductId;
     if (!pid) return;
     if (!this.wishlist) {
-      this.notifications.show("\u0412\u0438\u0448\u043B\u0438\u0441\u0442 \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D", { duration: 1400 });
+      this.notifications.show(this.messages.wishlistNotConfigured, { duration: 1400 });
       return;
     }
     try {
       if (this.wishlist.toggle) this.wishlist.toggle(pid);
       else if (this.wishlist.add) this.wishlist.add(pid);
       this._syncWishlistButton();
-      this.notifications.show("\u041E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u043E \u0432 \u0432\u0438\u0448\u043B\u0438\u0441\u0442\u0435", { duration: 1200 });
+      this.notifications.show(this.messages.wishlistUpdated, { duration: 1200 });
     } catch (err) {
       console.warn(err);
     }
@@ -6446,11 +6479,15 @@ var ProductPage = class {
     const available = product ? product.stock ?? product.qty ?? 0 : 0;
     if (qty > available) {
       e.target.value = String(available || 1);
-      this.notifications.show(`\u041C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u043E: ${available}`, { duration: 1400 });
+      const msg = this.messages.maxAvailableTemplate.replace("{count}", String(available));
+      this.notifications.show(msg, { duration: 1400 });
     }
     const cartItem = Array.isArray(this.cart?.cart) ? this.cart.cart.find((i) => String(i.name) === String(pid)) : null;
     if (cartItem && typeof this.cart?.changeQty === "function") {
-      const newQty = Math.max(1, Math.min(available || 1, parseInt(e.target.value || "1", 10)));
+      const newQty = Math.max(
+        1,
+        Math.min(available || 1, parseInt(e.target.value || "1", 10))
+      );
       try {
         this.cart.changeQty(pid, newQty);
       } catch (err) {
@@ -6474,7 +6511,7 @@ var ProductPage = class {
         this.cart?.changeQty?.(pid, target);
       }
       this._syncQtyControls();
-      this._log("_onQtyIncr: increment qty", pid, "new qty", qtyEl?.value);
+      this._log("_onQtyIncr: increment", pid, "->", qtyEl?.value);
     } catch (err) {
       console.error("_onQtyIncr", err);
     }
@@ -6500,11 +6537,13 @@ var ProductPage = class {
             }
           }
           this.notifications.show(this.messages.itemRemovedFromCart, { duration: 1500 });
-          this._log("_onQtyDecr: item removed from cart", pid);
+          this._log("_onQtyDecr: removed from cart", pid);
         } catch (err) {
           console.warn("cart.remove threw", err);
         }
-        window.dispatchEvent(new CustomEvent("cart:updated", { detail: { changedIds: [pid] } }));
+        window.dispatchEvent(
+          new CustomEvent("cart:updated", { detail: { changedIds: [pid] } })
+        );
       } else {
         try {
           this.cart?.changeQty?.(String(pid), Number(target));
@@ -6516,7 +6555,9 @@ var ProductPage = class {
           if (idx >= 0) {
             this.cart.cart[idx].qty = Number(target);
             this.cart.save?.();
-            window.dispatchEvent(new CustomEvent("cart:updated", { detail: { changedIds: [pid] } }));
+            window.dispatchEvent(
+              new CustomEvent("cart:updated", { detail: { changedIds: [pid] } })
+            );
           }
         }
       }
@@ -6535,7 +6576,51 @@ var ProductPage = class {
   _onCartUpdated() {
     this._syncQtyControls();
   }
-  // Sync UI state methods
+  _onBuyNowClick(e) {
+    e.preventDefault();
+    if (!this.container) return;
+    const pid = this.currentProductId;
+    const product = this.productService.findById(pid);
+    if (!product) return;
+    const qtyEl = this.container.querySelector(".qty-input");
+    const stock = Number(product.stock ?? product.qty ?? 0) || 0;
+    let qty = 1;
+    if (qtyEl) {
+      const raw = Number(qtyEl.value || 1);
+      qty = Number.isFinite(raw) && raw > 0 ? raw : 1;
+    }
+    if (stock > 0) qty = Math.min(qty, stock);
+    const buyNowItem = {
+      id: product.id ?? product.productId ?? null,
+      name: product.name ?? product.fullname ?? "",
+      fullname: product.fullname ?? product.name ?? "",
+      price: Number(product.price ?? product.product_price ?? 0),
+      qty,
+      picture: (() => {
+        if (!product.picture) return "[]";
+        if (typeof product.picture === "string") {
+          try {
+            JSON.parse(product.picture);
+            return product.picture;
+          } catch {
+            return JSON.stringify([product.picture]);
+          }
+        }
+        if (Array.isArray(product.picture)) return JSON.stringify(product.picture);
+        return "[]";
+      })(),
+      specs: product.specs ?? product.description ?? ""
+    };
+    location.hash = "#page/checkout";
+    setTimeout(() => {
+      if (this.shop && this.shop.checkoutPage) {
+        this.shop.checkoutPage.init("#test", { buyNowItem });
+      } else {
+        console.warn("[ProductPage] this.shop.checkoutPage \u043D\u0435 \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D");
+      }
+    }, 800);
+  }
+  // ===== sync UI =====
   _syncFavButton() {
     if (!this.container || !this.favorites) return;
     const btn = this.container.querySelector(".fav-toggle");
@@ -6571,7 +6656,7 @@ var ProductPage = class {
     let isIn = false;
     try {
       isIn = this.wishlist.isIn?.(this.currentProductId) || this.wishlist.has?.(this.currentProductId) || false;
-    } catch (_) {
+    } catch {
     }
     btn.textContent = isIn ? this.messages.wishlistLabelIn : this.messages.wishlistLabelAdd;
   }
@@ -6586,34 +6671,49 @@ var ProductPage = class {
     const qtyEl = this.container.querySelector(".qty-input");
     const btnPlus = this.container.querySelector(".qty-incr");
     const btnMinus = this.container.querySelector(".qty-decr");
-    const addBtn = this.container.querySelector('[data-action="add-to-cart"], .add-to-cart, .btn-yellow');
+    const addBtn = this.container.querySelector(
+      '[data-action="add-to-cart"], .add-to-cart, .btn-yellow'
+    );
     const buyNowBtn = this.container.querySelector('[data-action="buy-now"]');
+    if (buyNowBtn && !buyNowBtn._buyBound) {
+      buyNowBtn.addEventListener("click", this._bound.onBuyNowClick);
+      buyNowBtn._buyBound = true;
+    }
     const cartItem = Array.isArray(this.cart?.cart) ? this.cart.cart.find((i) => String(i.name) === String(pid)) : null;
     const cartQty = cartItem ? Number(cartItem.qty || 0) : 0;
     if (qtyEl) {
       qtyEl.setAttribute("min", "1");
       qtyEl.setAttribute("max", String(Math.max(1, stock)));
-      let cur = parseInt(qtyEl.value || (cartQty > 0 ? String(cartQty) : "1"), 10) || 1;
+      let cur = parseInt(
+        qtyEl.value || (cartQty > 0 ? String(cartQty) : "1"),
+        10
+      ) || 1;
       if (cartQty > 0) {
         cur = cartQty;
-        buyNowBtn && (buyNowBtn.style.display = "none");
-        controlBar && (controlBar.style.display = "flex");
+        if (buyNowBtn) buyNowBtn.style.display = "none";
+        if (controlBar) controlBar.style.display = "flex";
         if (addBtn) {
           try {
             addBtn.removeEventListener("click", this._bound.onAddClick);
-          } catch (_) {
+          } catch {
           }
           addBtn.onclick = () => {
             try {
               this.shop.foxEngine?.page?.loadPage("cart");
-            } catch (_) {
+            } catch {
             }
           };
-          addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" class="_1w4N_" width="16" height="16"><path fill="#21201F" fill-rule="evenodd" d="M0 5.752a.5.5 0 0 1 .5-.5h8.65L5.304 1.406a.5.5 0 0 1 0-.707l.342-.343a.5.5 0 0 1 .708 0L12 6.002 6.354 11.65a.5.5 0 0 1-.708 0l-.342-.343a.5.5 0 0 1 0-.707L9.15 6.752H.5a.5.5 0 0 1-.5-.5v-.5Z" clip-rule="evenodd"></path></svg> ${this.messages.goToCartButton}`;
+          addBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"
+                 class="_1w4N_" width="16" height="16">
+              <path fill="#21201F" fill-rule="evenodd"
+                    d="M0 5.752a.5.5 0 0 1 .5-.5h8.65L5.304 1.406a.5.5 0 0 1 0-.707l.342-.343a.5.5 0 0 1 .708 0L12 6.002 6.354 11.65a.5.5 0 0 1-.708 0l-.342-.343a.5.5 0 0 1 0-.707L9.15 6.752H.5a.5.5 0 0 1-.5-.5v-.5Z"
+                    clip-rule="evenodd"></path>
+            </svg> ${this.messages.goToCartButton}`;
         }
       } else {
-        buyNowBtn && (buyNowBtn.style.display = "flex");
-        controlBar && (controlBar.style.display = "none");
+        if (buyNowBtn) buyNowBtn.style.display = "flex";
+        if (controlBar) controlBar.style.display = "none";
         if (addBtn) {
           addBtn.onclick = null;
           addBtn.addEventListener("click", this._bound.onAddClick);
@@ -6642,16 +6742,19 @@ var ProductPage = class {
       if (btnPlus) {
         const disablePlus = stock <= 0 || current >= stock;
         btnPlus.disabled = disablePlus;
-        disablePlus ? btnPlus.setAttribute("aria-disabled", "true") : btnPlus.removeAttribute("aria-disabled");
+        if (disablePlus) btnPlus.setAttribute("aria-disabled", "true");
+        else btnPlus.removeAttribute("aria-disabled");
       }
       if (btnMinus) {
         const disableMinus = current <= 0;
         btnMinus.disabled = disableMinus;
-        disableMinus ? btnMinus.setAttribute("aria-disabled", "true") : btnMinus.removeAttribute("aria-disabled");
+        if (disableMinus) btnMinus.setAttribute("aria-disabled", "true");
+        else btnMinus.removeAttribute("aria-disabled");
       }
-    } catch (e) {
+    } catch {
     }
   }
+  // ===== cards / related =====
   async createCard(product = {}) {
     const p = product || {};
     const id = String(p.name ?? p.id ?? p.productId ?? "");
@@ -6674,7 +6777,10 @@ var ProductPage = class {
     const fox = this.shop.foxEngine;
     try {
       if (fox?.templateCache?.[this.opts.cardTemplateKey]) {
-        html = await fox.replaceTextInTemplate(fox.templateCache[this.opts.cardTemplateKey], data);
+        html = await fox.replaceTextInTemplate(
+          fox.templateCache[this.opts.cardTemplateKey],
+          data
+        );
       }
     } catch (e) {
       fox?.log?.("ProductPage.createCard template error: " + e, "ERROR");
@@ -6689,13 +6795,21 @@ var ProductPage = class {
       const escSpecs = data.specsHtml || "";
       html = `
         <article class="card product-card" data-product-id="${escapeHtml2(id)}">
-          <div class="card__media"><img src="${escImg}" alt="${escTitle}" loading="lazy"></div>
+          <div class="card__media">
+            <img src="${escImg}" alt="${escTitle}" loading="lazy">
+          </div>
           <div class="card__body p-2">
             <h3 class="card__title small">${escTitle}</h3>
-            <div class="card__price">${escPrice}${hasOldPrice ? ' <small class="old">' + escOld + "</small>" : ""}</div>
+            <div class="card__price">
+              ${escPrice}${hasOldPrice ? ' <small class="old">' + escOld + "</small>" : ""}
+            </div>
             <div class="card__short small text-muted">${escShort}</div>
             <div class="card__specs small">${escSpecs}</div>
-            <div class="card__controls mt-2"><button data-role="buy" class="btn btn-sm btn-outline-primary">${this.messages.addToCartButton}</button></div>
+            <div class="card__controls mt-2">
+              <button data-role="buy" class="btn btn-sm btn-outline-primary">
+                ${this.messages.addToCartButton}
+              </button>
+            </div>
           </div>
         </article>`;
     }
@@ -6704,7 +6818,7 @@ var ProductPage = class {
     const node = wrapper.firstElementChild || wrapper;
     try {
       node?.setAttribute("data-product-id", String(id));
-    } catch (_) {
+    } catch {
     }
     return node;
   }
@@ -6712,7 +6826,9 @@ var ProductPage = class {
     if (!rootEl) return;
     rootEl.innerHTML = "";
     const frag = document.createDocumentFragment();
-    const cards = await Promise.all((Array.isArray(list) ? list : []).map((p) => this.createCard(p)));
+    const cards = await Promise.all(
+      (Array.isArray(list) ? list : []).map((p) => this.createCard(p))
+    );
     for (const card of cards) {
       if (!card) continue;
       card.style.opacity = "0";
@@ -6748,8 +6864,12 @@ var ProductPage = class {
     if (!relatedRoot) return;
     try {
       const all = Array.isArray(this.productService.getProducts()) ? this.productService.getProducts() : [];
-      let related = all.filter((p) => p && p.id != product.id && p.category === product.category);
-      if (!related.length) related = all.filter((p) => p && p.id != product.id);
+      let related = all.filter(
+        (p) => p && p.id != product.id && p.category === product.category
+      );
+      if (!related.length) {
+        related = all.filter((p) => p && p.id != product.id);
+      }
       related = related.slice(0, this.opts.relatedLimit);
       await this._renderCartVertical(related, relatedRoot);
       related.forEach((p) => {
@@ -6770,16 +6890,16 @@ var ProductPage = class {
     if (v == null) return "";
     if (typeof v === "number") {
       try {
-        return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 }).format(v);
-      } catch (e) {
+        return new Intl.NumberFormat("ru-RU", {
+          style: "currency",
+          currency: "RUB",
+          maximumFractionDigits: 0
+        }).format(v);
+      } catch {
         return String(v);
       }
     }
     return String(v);
-  }
-  _escape(str) {
-    if (str == null) return "";
-    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   _escapeAttr(str) {
     if (str == null) return "";
@@ -6951,8 +7071,290 @@ var ViewedItemsModule = class {
   }
 };
 
-// ShopMatic/js/modules/Catalog.js
-var Catalog = class _Catalog {
+// ShopMatic/js/modules/Catalog/FilterController.js
+var FilterController = class {
+  /**
+   * @param {Object} opts
+   * @param {HTMLInputElement|null}  opts.searchEl
+   * @param {HTMLSelectElement|null} opts.catFilterEl
+   * @param {HTMLSelectElement|null} opts.brandFilterEl
+   * @param {HTMLSelectElement|null} opts.sortEl
+   * @param {HTMLButtonElement|null} opts.searchBtnEl
+   * @param {HTMLButtonElement|null} opts.resetBtnEl
+   * @param {HTMLElement|null}       opts.productsCountEl
+   * @param {number}                 [opts.debounceMs=300]
+   */
+  constructor({
+    searchEl,
+    catFilterEl,
+    brandFilterEl,
+    sortEl,
+    searchBtnEl,
+    resetBtnEl,
+    productsCountEl,
+    debounceMs = 300
+  } = {}) {
+    this.productsCountEl = productsCountEl || null;
+    this.resetBtnEl = resetBtnEl || null;
+    this.searchBtnEl = searchBtnEl || null;
+    this._onChange = null;
+    this._debounceMs = debounceMs;
+    this._fieldsConfig = [
+      {
+        key: "search",
+        el: searchEl || null,
+        events: ["input"],
+        useDebounce: true,
+        getValue: (el) => (el?.value || "").trim(),
+        setValue: (el, value) => {
+          if (!el) return;
+          el.value = value ?? "";
+        },
+        defaultValue: ""
+      },
+      {
+        key: "category",
+        el: catFilterEl || null,
+        events: ["change"],
+        useDebounce: false,
+        getValue: (el) => el?.value || "",
+        setValue: (el, value) => {
+          if (!el) return;
+          el.value = value ?? "";
+        },
+        defaultValue: ""
+      },
+      {
+        key: "brand",
+        el: brandFilterEl || null,
+        events: ["change"],
+        useDebounce: false,
+        getValue: (el) => el?.value || "",
+        setValue: (el, value) => {
+          if (!el) return;
+          el.value = value ?? "";
+        },
+        defaultValue: ""
+      },
+      {
+        key: "sort",
+        el: sortEl || null,
+        events: ["change"],
+        useDebounce: false,
+        getValue: (el) => el?.value || "",
+        setValue: (el, value) => {
+          if (!el) return;
+          el.value = value ?? "";
+        },
+        // дефолт сортировки определяем позже в reset()
+        defaultValue: ""
+      }
+    ];
+    this._state = this._buildInitialState();
+    this._fieldHandlers = /* @__PURE__ */ new Map();
+    this._boundReset = this._handleReset.bind(this);
+    this._boundSearchBtn = this._handleSearchBtn.bind(this);
+  }
+  /* ----------------------------------------------------------------------- */
+  /* Public API                                                              */
+  /* ----------------------------------------------------------------------- */
+  /**
+   * Подписать контроллер на изменения фильтров
+   * @param {(state: object) => void} onChange
+   */
+  bind(onChange) {
+    this._onChange = typeof onChange === "function" ? onChange : null;
+    const baseHandler = this._handleChange.bind(this);
+    this._fieldsConfig.forEach((cfg) => {
+      const { key, el, events, useDebounce } = cfg;
+      if (!el || !Array.isArray(events)) return;
+      const handler = useDebounce ? debounce(baseHandler, this._debounceMs) : baseHandler;
+      this._fieldHandlers.set(key, handler);
+      events.forEach((eventName) => {
+        el.addEventListener(eventName, handler);
+      });
+    });
+    if (this.searchBtnEl) {
+      this.searchBtnEl.addEventListener("click", this._boundSearchBtn);
+    }
+    if (this.resetBtnEl) {
+      this.resetBtnEl.addEventListener("click", this._boundReset);
+    }
+  }
+  unbind() {
+    this._fieldsConfig.forEach((cfg) => {
+      const { key, el, events } = cfg;
+      if (!el || !Array.isArray(events)) return;
+      const handler = this._fieldHandlers.get(key);
+      if (!handler) return;
+      events.forEach((eventName) => {
+        el.removeEventListener(eventName, handler);
+      });
+    });
+    this._fieldHandlers.clear();
+    if (this.searchBtnEl) {
+      this.searchBtnEl.removeEventListener("click", this._boundSearchBtn);
+    }
+    if (this.resetBtnEl) {
+      this.resetBtnEl.removeEventListener("click", this._boundReset);
+    }
+    this._onChange = null;
+  }
+  /** Текущее состояние фильтров */
+  getState() {
+    this._syncFromControls();
+    return { ...this._state };
+  }
+  /**
+   * Применить состояние к контролам
+   * @param {Object} partial
+   * @param {boolean} [options.silent=false]
+   */
+  setState(partial = {}, { silent = false } = {}) {
+    this._state = { ...this._state, ...partial };
+    this._syncToControls();
+    if (!silent) this._emitChange();
+  }
+  /** Сброс фильтров к дефолтному состоянию */
+  reset({ silent = false } = {}) {
+    const sortCfg = this._fieldsConfig.find((f) => f.key === "sort");
+    if (sortCfg && sortCfg.el) {
+      const first = sortCfg.el.querySelector("option");
+      sortCfg.defaultValue = first ? first.value : "";
+    }
+    this._state = this._buildInitialState();
+    this._syncToControls();
+    if (!silent) this._emitChange();
+  }
+  /** Обновить визуальный счётчик товаров */
+  setCount(count) {
+    if (this.productsCountEl) {
+      this.productsCountEl.textContent = String(count ?? 0);
+    }
+  }
+  /* ----------------------------------------------------------------------- */
+  /* Internal                                                                */
+  /* ----------------------------------------------------------------------- */
+  _buildInitialState() {
+    const state = {};
+    this._fieldsConfig.forEach((cfg) => {
+      const { key, defaultValue } = cfg;
+      state[key] = typeof defaultValue === "function" ? defaultValue() : defaultValue ?? "";
+    });
+    return state;
+  }
+  _emitChange() {
+    if (!this._onChange) return;
+    this._onChange(this.getState());
+  }
+  _syncFromControls() {
+    this._fieldsConfig.forEach((cfg) => {
+      const { key, el, getValue } = cfg;
+      if (!el || typeof getValue !== "function") return;
+      this._state[key] = getValue(el);
+    });
+  }
+  _syncToControls() {
+    this._fieldsConfig.forEach((cfg) => {
+      const { key, el, setValue } = cfg;
+      if (!el || typeof setValue !== "function") return;
+      setValue(el, this._state[key]);
+    });
+  }
+  _handleChange() {
+    this._syncFromControls();
+    this._emitChange();
+  }
+  _handleSearchBtn() {
+    this._handleChange();
+  }
+  _handleReset() {
+    this.reset();
+  }
+};
+
+// ShopMatic/js/modules/Catalog/CatalogView.js
+var CatalogView = class {
+  /**
+   * @param {Object} opts
+   * @param {HTMLElement|null} opts.root
+   * @param {HTMLElement|null} opts.productsCountEl
+   * @param {Object}           opts.shop (renderer, favorites, _msg, _syncAllCardsControls)
+   * @param {(key:string, fallback?:string)=>string} opts.msg
+   */
+  constructor({ root, productsCountEl, shop, msg }) {
+    this.root = root || null;
+    this.productsCountEl = productsCountEl || null;
+    this.shop = shop;
+    this._msg = typeof msg === "function" ? msg : (key, fallback = "") => fallback || key;
+  }
+  /**
+   * Основной метод рендера каталога
+   * @param {Array<any>} list
+   */
+  async render(list = []) {
+    const arr = Array.isArray(list) ? list : [];
+    if (!this.root) return;
+    if (this.productsCountEl) {
+      this.productsCountEl.textContent = String(arr.length);
+    }
+    if (!arr.length) {
+      this.renderNoResults();
+      return;
+    }
+    this.clearNoResults();
+    await this.shop.renderer._renderCartVertical(arr, this.root);
+    this._updateFavorites(arr);
+    this.shop._syncAllCardsControls();
+  }
+  /**
+   * Рендер пустого состояния
+   * @param {string|null} [message]
+   */
+  renderNoResults(message = null) {
+    if (!this.root) return;
+    if (this.productsCountEl) this.productsCountEl.textContent = "0";
+    const text = message ?? this._msg("CATALOG_NO_RESULTS", "\u041F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u043E\u043F\u0446\u0438\u044F\u043C \u043D\u0435\u0442 \u0442\u043E\u0432\u0430\u0440\u043E\u0432");
+    const hintText = this._msg(
+      "CATALOG_NO_RESULTS_HINT",
+      "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u0438\u043B\u0438 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A."
+    );
+    const wrapper = document.createElement("div");
+    wrapper.className = "catalog-empty";
+    const icon = document.createElement("div");
+    icon.className = "catalog-empty__icon";
+    icon.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 6h18v2H3zm0 5h12v2H3zm0 5h6v2H3z"></path></svg>';
+    icon.style.opacity = "0.6";
+    const p = document.createElement("p");
+    p.className = "catalog-empty__text";
+    p.textContent = text;
+    const hint = document.createElement("div");
+    hint.className = "catalog-empty__hint";
+    hint.textContent = hintText;
+    wrapper.appendChild(icon);
+    wrapper.appendChild(p);
+    wrapper.appendChild(hint);
+    this.root.innerHTML = "";
+    this.root.appendChild(wrapper);
+    this.shop._syncAllCardsControls();
+  }
+  clearNoResults() {
+    const found = this.root?.querySelector(".catalog-empty");
+    if (found) found.remove();
+  }
+  _updateFavorites(list) {
+    if (!this.shop.favorites || !this.root) return;
+    list.forEach((product) => {
+      const card = this.root.querySelector(`[data-product-id="${product.id}"]`);
+      if (!card) return;
+      const isFav = this.shop.favorites.isFavorite(product.id);
+      this.shop.renderer.updateProductCardFavState(this.root, product.id, isFav);
+    });
+  }
+};
+
+// ShopMatic/js/modules/Catalog/CatalogController.js
+var CatalogController = class _CatalogController {
   static UI_MESSAGES = Object.freeze({
     PRODUCT_LIMIT_DEFAULT: "\u0423 \u0432\u0430\u0441 \u0443\u0436\u0435 \u043C\u0430\u043A\u0441\u0438\u043C\u0443\u043C \u0432 \u043A\u043E\u0440\u0437\u0438\u043D\u0435",
     PRODUCT_LIMIT_REACHED: "\u0412\u044B \u0434\u043E\u0441\u0442\u0438\u0433\u043B\u0438 \u043C\u0430\u043A\u0441\u0438\u043C\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u0430 \u044D\u0442\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430",
@@ -6964,7 +7366,7 @@ var Catalog = class _Catalog {
     CATALOG_LOAD_ERROR: "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0442\u043E\u0432\u0430\u0440\u044B",
     CATALOG_ALL_OPTION: "\u0412\u0441\u0435",
     CATALOG_NO_RESULTS: "\u041F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u043E\u043F\u0446\u0438\u044F\u043C \u043D\u0435\u0442 \u0442\u043E\u0432\u0430\u0440\u043E\u0432",
-    CATALOG_NO_RESULTS_HINT: "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0443 \u0438\u043B\u0438 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A."
+    CATALOG_NO_RESULTS_HINT: "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B \u0438\u043B\u0438 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A."
   });
   constructor({
     shop,
@@ -6976,7 +7378,7 @@ var Catalog = class _Catalog {
     searchBtnId,
     productsCountId
   }) {
-    if (!shop) throw new Error("Catalog requires a shop instance");
+    if (!shop) throw new Error("CatalogController requires a shop instance");
     this.shop = shop;
     this.opts = {
       rootId,
@@ -6995,15 +7397,10 @@ var Catalog = class _Catalog {
     this.searchBtn = null;
     this.resetBtn = null;
     this.productsCount = null;
-    this._bound = {
-      onSearchInput: debounce(this.onSearchInput.bind(this), 300),
-      onCatChange: this.onCatChange.bind(this),
-      onBrandChange: this.onBrandChange.bind(this),
-      onSortChange: this.onSortChange.bind(this),
-      onSearchBtn: this.onSearchBtn.bind(this),
-      onResetFilters: this.onResetFilters.bind(this)
-    };
+    this.filters = null;
+    this.view = null;
   }
+  // --- utils / i18n --------------------------------------------------------
   _msg(key, fallback = "") {
     if (this.shop && typeof this.shop._msg === "function") {
       const val = this.shop._msg(key);
@@ -7014,54 +7411,95 @@ var Catalog = class _Catalog {
       const val = i18n.t(key);
       if (val != null && val !== key) return val;
     }
-    return _Catalog.UI_MESSAGES[key] || fallback;
+    return _CatalogController.UI_MESSAGES[key] || fallback;
   }
+  _getProductService() {
+    return this.shop?.productService || null;
+  }
+  _setLocationHash(hash) {
+    if (typeof window !== "undefined" && window.location) {
+      window.location.hash = hash;
+    }
+  }
+  _showNotification(message) {
+    try {
+      this.shop.notifications.show(message, {
+        duration: this.shop.opts?.notificationDuration ?? 3e3
+      });
+    } catch (_) {
+    }
+  }
+  // --- lifecycle -----------------------------------------------------------
   async init(_request = {}) {
     this._cacheDomElements();
-    const ps = this.shop.productService;
+    this._createHelpers();
+    const ps = this._getProductService();
     if (!ps) return;
+    await this.initSelectors();
     try {
       await ps.loadProductsSimple();
     } catch (err) {
       console.error("Catalog.init: loadProductsSimple failed", err);
-      this._showNotification(this._msg("CATALOG_LOAD_ERROR", "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0442\u043E\u0432\u0430\u0440\u044B"));
+      this._showNotification(
+        this._msg("CATALOG_LOAD_ERROR", "\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0442\u043E\u0432\u0430\u0440\u044B")
+      );
     }
-    this._bindEvents();
+    this._bindFilterEvents();
   }
-  async loadCatalog({ request = null } = {}) {
-    const ps = this.shop.productService;
-    if (!ps) return [];
-    const selectedCategory = request?.category ?? "";
-    const selectedBrand = request?.brand ?? "";
-    this._setLocationHash("#page/catalog");
+  async initSelectors(brand = "", category = "") {
     await Promise.all([
       this.catFilter ? this._populateFilter(
         this.catFilter,
-        ps,
+        this._getProductService(),
         "fillCategories",
         "fetchCategories",
-        selectedCategory
+        category
       ) : Promise.resolve(),
       this.brandFilter ? this._populateFilter(
         this.brandFilter,
-        ps,
+        this._getProductService(),
         "fillBrands",
         "fetchBrands",
-        selectedBrand
+        brand
       ) : Promise.resolve()
     ]);
-    if (this.catFilter && selectedCategory) {
-      this.catFilter.value = selectedCategory;
-    }
-    if (this.brandFilter && selectedBrand) {
-      this.brandFilter.value = selectedBrand;
+    await this.applyFilters();
+  }
+  /**
+   * Здесь:
+   *  - наполняем селекты (категория / бренд)
+   *  - выставляем значения из request
+   *  - применяем фильтрацию и рендер
+   */
+  async loadCatalog({ request = null } = {}) {
+    const ps = this._getProductService();
+    if (!ps) return [];
+    const selectedCategory = request?.category ?? "";
+    const selectedBrand = request?.brand ?? "";
+    const searchValue = request?.search ?? "";
+    const sortValue = request?.sort ?? "";
+    this._setLocationHash("#page/catalog");
+    await this.initSelectors(selectedBrand, selectedCategory);
+    this._applyRequestToControls({
+      category: selectedCategory,
+      brand: selectedBrand,
+      search: searchValue,
+      sort: sortValue
+    });
+    if (this.filters) {
+      this.filters.setState({
+        category: selectedCategory,
+        brand: selectedBrand,
+        search: searchValue,
+        sort: sortValue
+      }, { silent: true });
     }
     await this.applyFilters();
     const list = ps.getProducts?.();
     return Array.isArray(list) ? [...list] : [];
   }
   destroy() {
-    this._removeEventListeners();
+    if (this.filters) this.filters.unbind();
     this.root = null;
     this.catFilter = null;
     this.brandFilter = null;
@@ -7070,8 +7508,10 @@ var Catalog = class _Catalog {
     this.searchBtn = null;
     this.resetBtn = null;
     this.productsCount = null;
+    this.filters = null;
+    this.view = null;
   }
-  // --- DOM / events --------------------------------------------------------
+  // --- DOM / helpers -------------------------------------------------------
   _cacheDomElements() {
     const {
       rootId,
@@ -7091,33 +7531,42 @@ var Catalog = class _Catalog {
     this.productsCount = document.getElementById(productsCountId) || null;
     this.resetBtn = document.getElementById("resetFilters") || null;
   }
-  _bindEvents() {
-    if (this.search) this.search.addEventListener("input", this._bound.onSearchInput);
-    if (this.catFilter) this.catFilter.addEventListener("change", this._bound.onCatChange);
-    if (this.brandFilter) this.brandFilter.addEventListener("change", this._bound.onBrandChange);
-    if (this.sort) this.sort.addEventListener("change", this._bound.onSortChange);
-    if (this.searchBtn) this.searchBtn.addEventListener("click", this._bound.onSearchBtn);
-    if (this.resetBtn) this.resetBtn.addEventListener("click", this._bound.onResetFilters);
+  _createHelpers() {
+    this.filters = new FilterController({
+      searchEl: this.search,
+      catFilterEl: this.catFilter,
+      brandFilterEl: this.brandFilter,
+      sortEl: this.sort,
+      searchBtnEl: this.searchBtn,
+      resetBtnEl: this.resetBtn,
+      productsCountEl: this.productsCount,
+      debounceMs: 300
+    });
+    this.view = new CatalogView({
+      root: this.root,
+      productsCountEl: this.productsCount,
+      shop: this.shop,
+      msg: this._msg.bind(this)
+    });
   }
-  _removeEventListeners() {
-    if (this.search) this.search.removeEventListener("input", this._bound.onSearchInput);
-    if (this.catFilter) this.catFilter.removeEventListener("change", this._bound.onCatChange);
-    if (this.brandFilter) this.brandFilter.removeEventListener("change", this._bound.onBrandChange);
-    if (this.sort) this.sort.removeEventListener("change", this._bound.onSortChange);
-    if (this.searchBtn) this.searchBtn.removeEventListener("click", this._bound.onSearchBtn);
-    if (this.resetBtn) this.resetBtn.removeEventListener("click", this._bound.onResetFilters);
+  _bindFilterEvents() {
+    if (!this.filters) return;
+    this.filters.bind(() => {
+      this.applyFilters();
+    });
   }
-  _setLocationHash(hash) {
-    if (typeof window !== "undefined" && window.location) {
-      window.location.hash = hash;
+  _applyRequestToControls({ category, brand, search, sort }) {
+    if (this.search && typeof search === "string") {
+      this.search.value = search;
     }
-  }
-  _showNotification(message) {
-    try {
-      this.shop.notifications.show(message, {
-        duration: this.shop.opts?.notificationDuration ?? 3e3
-      });
-    } catch (_) {
+    if (this.catFilter && category) {
+      this.catFilter.value = category;
+    }
+    if (this.brandFilter && brand) {
+      this.brandFilter.value = brand;
+    }
+    if (this.sort && sort) {
+      this.sort.value = sort;
     }
   }
   // --- filters / data ------------------------------------------------------
@@ -7152,11 +7601,11 @@ var Catalog = class _Catalog {
         filterElement.value = selectedValue;
       }
     } catch (err) {
-      console.warn(`Catalog._populateFilter: ${fillMethod} failed`, err);
+      console.warn(`CatalogController._populateFilter: ${fillMethod} failed`, err);
     }
   }
   _getProductList() {
-    const ps = this.shop.productService;
+    const ps = this._getProductService();
     const list = ps && typeof ps.getProducts === "function" ? ps.getProducts() : [];
     return Array.isArray(list) ? [...list] : [];
   }
@@ -7201,165 +7650,101 @@ var Catalog = class _Catalog {
   async applyFilters() {
     let list = this._getProductList();
     list = this._filterAndSort(list);
-    if (this.productsCount) {
-      this.productsCount.textContent = String(list.length);
-    }
-    if (!this.root) return;
-    if (!list.length) {
-      this._renderNoResults();
-      return;
-    }
-    this._clearNoResults();
-    await this.shop.renderer._renderCartVertical(list, this.root);
-    this._updateFavorites(list);
-    this.shop._syncAllCardsControls();
-  }
-  _renderNoResults(message = null) {
-    if (!this.root) return;
-    if (this.productsCount) this.productsCount.textContent = "0";
-    const text = message ?? this._msg("CATALOG_NO_RESULTS", "\u041F\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u043C \u043E\u043F\u0446\u0438\u044F\u043C \u043D\u0435\u0442 \u0442\u043E\u0432\u0430\u0440\u043E\u0432");
-    const hintText = this._msg(
-      "CATALOG_NO_RESULTS_HINT",
-      "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B, \u0443\u0434\u0430\u043B\u0438\u0442\u044C \u0441\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u043A\u0443 \u0438\u043B\u0438 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043F\u043E\u0438\u0441\u043A."
-    );
-    const wrapper = document.createElement("div");
-    wrapper.className = "catalog-empty";
-    const icon = document.createElement("div");
-    icon.className = "catalog-empty__icon";
-    icon.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 6h18v2H3zm0 5h12v2H3zm0 5h6v2H3z"></path></svg>';
-    icon.style.opacity = "0.6";
-    const p = document.createElement("p");
-    p.className = "catalog-empty__text";
-    p.textContent = text;
-    const hint = document.createElement("div");
-    hint.className = "catalog-empty__hint";
-    hint.textContent = hintText;
-    wrapper.appendChild(icon);
-    wrapper.appendChild(p);
-    wrapper.appendChild(hint);
-    this.root.innerHTML = "";
-    this.root.appendChild(wrapper);
-    this.shop._syncAllCardsControls();
-  }
-  _clearNoResults() {
-    const found = this.root?.querySelector(".catalog-empty");
-    if (found) found.remove();
-  }
-  _updateFavorites(list) {
-    if (!this.shop.favorites || !this.root) return;
-    list.forEach((product) => {
-      const card = this.root.querySelector(`[data-product-id="${product.id}"]`);
-      if (!card) return;
-      const isFav = this.shop.favorites.isFavorite(product.id);
-      this.shop.renderer.updateProductCardFavState(this.root, product.id, isFav);
-    });
-  }
-  // --- event handlers ------------------------------------------------------
-  onSearchInput() {
-    this.applyFilters();
-  }
-  onCatChange() {
-    this.applyFilters();
-  }
-  onBrandChange() {
-    this.applyFilters();
-  }
-  onSortChange() {
-    this.applyFilters();
-  }
-  onSearchBtn() {
-    this.applyFilters();
-  }
-  onResetFilters() {
-    if (this.search) this.search.value = "";
-    if (this.catFilter) this.catFilter.value = "";
-    if (this.brandFilter) this.brandFilter.value = "";
-    if (this.sort) this.sort.value = this.sort.querySelector("option")?.value || "";
-    this.applyFilters();
+    if (!this.view) return;
+    await this.view.render(list);
   }
 };
 
-// ShopMatic/js/modules/CheckoutPage.js
-var CheckoutPage = class {
-  constructor(cartService) {
-    this.cartService = cartService;
-    this.foxEngine = this.cartService.storage.shopMatic.foxEngine;
-    this.cartItems = [];
-    this.totalPrice = 0;
-    this.totalQty = 0;
-    this.promoCode = "";
+// ShopMatic/js/modules/Checkout/CheckoutView.js
+var CheckoutView = class {
+  constructor() {
+    this.container = null;
     this.goodsWordsArr = ["\u0442\u043E\u0432\u0430\u0440", "\u0442\u043E\u0432\u0430\u0440\u0430", "\u0442\u043E\u0432\u0430\u0440\u043E\u0432"];
-    this.deliveryOptions = [
-      {
-        label: "\u041F\u043E \u043A\u043B\u0438\u043A\u0443",
-        deliveryType: "ON_DEMAND",
-        description: "\u041F\u043E \u043A\u043B\u0438\u043A\u0443 \u0437\u0430 15-30 \u043C\u0438\u043D\u0443\u0442",
-        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
-        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
-        checked: false,
-        disabled: true
-      },
-      {
-        label: "\u041F\u0443\u043D\u043A\u0442 \u0432\u044B\u0434\u0430\u0447\u0438",
-        deliveryType: "PICKUP",
-        description: "\u0420\u044F\u0434\u043E\u043C, 7 \u043C\u0438\u043D\u0443\u0442",
-        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
-        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
-        checked: true,
-        disabled: false
-      },
-      {
-        label: "\u041A\u0443\u0440\u044C\u0435\u0440",
-        deliveryType: "COURIER",
-        description: "\u0414\u043E\u0441\u0442\u0430\u0432\u043A\u0430 \u043D\u0430 \u0434\u043E\u043C",
-        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
-        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
-        checked: false,
-        disabled: true
-      }
-    ];
-    this._bound = {
-      onApplyPromo: this._onApplyPromo.bind(this),
-      onCheckout: this._onCheckout.bind(this),
-      onContainerClick: this._onContainerClick.bind(this),
-      onContainerChange: this._onContainerChange.bind(this)
-    };
+    this._bound = null;
   }
-  async init(id) {
-    this.container = document.querySelector(id);
-    this.cartItems = await this.cartService.getCartItems();
-    await this._renderCartItems();
-    this._buildDeliveryOptions();
-    this._bindEvents();
-    this._updateTotalsUI();
+  setContainer(container) {
+    this.container = container instanceof HTMLElement ? container : document.querySelector(container) || null;
   }
-  _bindEvents() {
-    this.container.querySelector(".promo-code-apply")?.addEventListener("click", this._bound.onApplyPromo);
-    this.container.querySelector(".btn-checkout")?.addEventListener("click", this._bound.onCheckout);
-    this.container.addEventListener("click", this._bound.onContainerClick);
-    this.container.addEventListener("change", this._bound.onContainerChange);
+  getContainer() {
+    return this.container;
   }
-  _onApplyPromo() {
-    const promoInput = this.container.querySelector("#promo-input");
-    if (!promoInput) return;
-    this.promoCode = promoInput.value.trim();
-    if (this.promoCode === "DISCOUNT10") {
-      this.totalPrice = Math.round(this.totalPrice * 0.9);
-      this._updateTotalsUI();
-      this._showPromoHint("\u041F\u0440\u043E\u043C\u043E\u043A\u043E\u0434 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D! \u0421\u043A\u0438\u0434\u043A\u0430 10%");
-    } else {
-      this._showPromoHint("\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u043F\u0440\u043E\u043C\u043E\u043A\u043E\u0434");
+  setGoodsWords(wordsArr) {
+    if (Array.isArray(wordsArr) && wordsArr.length) {
+      this.goodsWordsArr = wordsArr;
     }
   }
-  _showPromoHint(message) {
+  bindEvents(handlers) {
+    if (!this.container) return;
+    this._bound = handlers || {};
+    const { onApplyPromo, onCheckout, onReturnToCart, onContainerClick, onContainerChange } = this._bound;
+    this.container.querySelector(".promo-code-apply")?.addEventListener("click", onApplyPromo);
+    this.container.querySelector(".btn-checkout")?.addEventListener("click", onCheckout);
+    this.container.querySelector(".btn-return-cart")?.addEventListener("click", onReturnToCart);
+    this.container.addEventListener("click", onContainerClick);
+    this.container.addEventListener("change", onContainerChange);
+  }
+  unbindEvents() {
+    if (!this.container || !this._bound) return;
+    const { onApplyPromo, onCheckout, onReturnToCart, onContainerClick, onContainerChange } = this._bound;
+    this.container.querySelector(".promo-code-apply")?.removeEventListener("click", onApplyPromo);
+    this.container.querySelector(".btn-checkout")?.removeEventListener("click", onCheckout);
+    this.container.querySelector(".btn-return-cart")?.removeEventListener("click", onReturnToCart);
+    this.container.removeEventListener("click", onContainerClick);
+    this.container.removeEventListener("change", onContainerChange);
+    this._bound = null;
+  }
+  /* === UI helpers === */
+  toggleReturnToCartButton(isBuyNow, hasCartBackup) {
+    if (!this.container) return;
+    const btn = this.container.querySelector(".btn-return-cart");
+    if (!btn) return;
+    if (isBuyNow && hasCartBackup) {
+      btn.style.display = "";
+    } else {
+      btn.style.display = "none";
+    }
+  }
+  updateModeIndicator(isBuyNow) {
+    if (!this.container) return;
+    const el = this.container.querySelector("#checkoutModeIndicator");
+    if (!el) return;
+    if (isBuyNow) {
+      el.innerHTML = `
+        <i class="fa-solid fa-bolt"></i>
+        <span>\u041A\u0443\u043F\u0438\u0442\u044C \u0441\u0435\u0439\u0447\u0430\u0441</span>
+      `;
+      el.classList.add("buy-now");
+      el.classList.remove("cart");
+    } else {
+      el.innerHTML = `
+        <i class="fa-solid fa-cart-shopping"></i>
+        <span>\u0412\u0430\u0448\u0430 \u043A\u043E\u0440\u0437\u0438\u043D\u0430</span>
+      `;
+      el.classList.add("cart");
+      el.classList.remove("buy-now");
+    }
+  }
+  getPromoInputValue() {
+    if (!this.container) return "";
+    const promoInput = this.container.querySelector("#promo-input");
+    return promoInput ? promoInput.value.trim() : "";
+  }
+  setPromoInputValue(value) {
+    if (!this.container) return;
+    const promoInput = this.container.querySelector("#promo-input");
+    if (promoInput) promoInput.value = value ?? "";
+  }
+  showPromoHint(message) {
+    if (!this.container) return;
     const hint = this.container.querySelector("#promo-hint");
     if (hint) hint.textContent = message;
   }
-  _buildDeliveryOptions() {
+  buildDeliveryOptions(deliveryOptions = []) {
+    if (!this.container) return;
     const host = this.container.querySelector("#deliveryOptions");
     if (!host) return;
     const frag = document.createDocumentFragment();
-    this.deliveryOptions.forEach((opt) => {
+    deliveryOptions.forEach((opt) => {
       const isChecked = !opt.disabled && !!opt.checked;
       const card = document.createElement("div");
       card.className = "delivery-card";
@@ -7372,7 +7757,9 @@ var CheckoutPage = class {
       );
       card.innerHTML = `
         <div class="delivery-card-header">
-          <label for="delivery-type-selector_global_${opt.deliveryType}" class="delivery-label" data-auto="${opt.deliveryType}">
+          <label for="delivery-type-selector_global_${opt.deliveryType}"
+                 class="delivery-label"
+                 data-auto="${opt.deliveryType}">
             <input
               id="delivery-type-selector_global_${opt.deliveryType}"
               name="delivery-type-selector_global"
@@ -7403,7 +7790,8 @@ var CheckoutPage = class {
     });
     host.replaceChildren(frag);
   }
-  _onContainerClick(e) {
+  handleDeliveryClick(e) {
+    if (!this.container) return;
     const card = e.target.closest(".delivery-card");
     if (!card || !this.container.contains(card)) return;
     if (card.classList.contains("disabled")) return;
@@ -7413,7 +7801,8 @@ var CheckoutPage = class {
     radio.checked = true;
     card.classList.add("checked");
   }
-  _onContainerChange(e) {
+  handleDeliveryChange(e) {
+    if (!this.container) return;
     const radio = e.target.closest('input[type="radio"]');
     if (!radio) return;
     const card = e.target.closest(".delivery-card");
@@ -7421,68 +7810,335 @@ var CheckoutPage = class {
     this.container.querySelectorAll(".delivery-card").forEach((c) => c.classList.remove("checked"));
     card.classList.add("checked");
   }
-  _updateTotalsUI() {
+  updateTotalsUI(totalPrice, totalQty) {
+    if (!this.container) return;
     const totalEl = this.container.querySelector("#cart-total");
     const qtyEl = this.container.querySelector("#cart-count-inline");
     const wordEl = this.container.querySelector("#goodsNumWord");
-    if (totalEl) totalEl.textContent = formatPrice(this.totalPrice);
-    if (qtyEl) qtyEl.textContent = this.totalQty;
-    if (wordEl) wordEl.textContent = pluralize(this.totalQty, this.goodsWordsArr);
+    if (totalEl) totalEl.textContent = formatPrice(totalPrice);
+    if (qtyEl) qtyEl.textContent = totalQty;
+    if (wordEl) wordEl.textContent = pluralize(totalQty, this.goodsWordsArr);
   }
-  async _renderCartItems() {
+  async renderCartItems(cartItems = []) {
+    if (!this.container) return { totalPrice: 0, totalQty: 0 };
     const grid = this.container.querySelector("#checkout-grid");
-    if (!grid) return;
-    grid.innerHTML = "";
-    if (!this.cartItems.length) {
-      grid.innerHTML = "<p>\u0412\u0430\u0448\u0430 \u043A\u043E\u0440\u0437\u0438\u043D\u0430 \u043F\u0443\u0441\u0442\u0430.</p>";
-      this.totalPrice = 0;
-      this.totalQty = 0;
-      this._updateTotalsUI();
-      return;
+    if (!grid) {
+      console.warn("[CheckoutView] #checkout-grid not found inside container");
+      return { totalPrice: 0, totalQty: 0 };
     }
-    this.totalPrice = 0;
-    this.totalQty = 0;
+    grid.innerHTML = "";
+    if (!cartItems.length) {
+      grid.innerHTML = "<p>\u0412\u0430\u0448\u0430 \u043A\u043E\u0440\u0437\u0438\u043D\u0430 \u043F\u0443\u0441\u0442\u0430.</p>";
+      this.updateTotalsUI(0, 0);
+      return { totalPrice: 0, totalQty: 0 };
+    }
+    let totalPrice = 0;
+    let totalQty = 0;
     const frag = document.createDocumentFragment();
-    for (const item of this.cartItems) {
-      this.totalPrice += item.price * item.qty;
-      this.totalQty += item.qty;
-      const card = await this._createCartItemCard(item);
+    for (const item of cartItems) {
+      const qty = Number(item.qty) || 1;
+      const price = Number(item.price) || 0;
+      totalPrice += price * qty;
+      totalQty += qty;
+      const card = await this._createCartItemCard({ ...item, qty, price });
       frag.appendChild(card);
     }
     grid.replaceChildren(frag);
-    this._updateTotalsUI();
+    this.updateTotalsUI(totalPrice, totalQty);
+    return { totalPrice, totalQty };
   }
   async _createCartItemCard(item) {
     const card = document.createElement("div");
     card.classList.add("card", "mb-3");
-    const picture = JSON.parse(item.picture)?.at(0) ?? "";
-    card.innerHTML = `
-      <div class="row g-0">
-        <div class="col-md-4 imgWrapper">
-          <img src="${picture}" class="img-fluid rounded-start checkoutPicture" alt="${item.name}">
-        </div>
-        <div class="col-md-8">
-          <span class="amount">\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E: ${item.qty}</span>
-          <div class="card-body">
-            <h5 class="card-title">${item.fullname}</h5>
-            <p class="card-text">${makeSpecHtmlPreview(item.specs)}</p>
-            <div class="d-flex justify-content-between">
-              <span>\u0426\u0435\u043D\u0430: <span class="price-submain">${formatPrice(item.price)}</span></span>
-            </div>
-            <div class="d-flex justify-content-between mt-3">
-              <span>\u0418\u0442\u043E\u0433\u043E: <span class="price-main">${formatPrice(item.price * item.qty)}</span></span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    let pictureUrl = "";
+    try {
+      const parsed = JSON.parse(item.picture || "[]");
+      if (Array.isArray(parsed) && parsed.length) {
+        pictureUrl = parsed[0];
+      }
+    } catch {
+      pictureUrl = "";
+    }
+    const safeName = item.name || item.fullname || "\u0422\u043E\u0432\u0430\u0440";
+    card.innerHTML = `<div class="checkout-item">
+  <div class="checkout-item__image">
+    <img 
+      src="${pictureUrl}" 
+      alt="${safeName}" 
+      class="checkout-item__img"
+    >
+  </div>
+
+  <div class="checkout-item__content">
+    <div class="checkout-item__top">
+      <h5 class="checkout-item__title">${item.fullname || safeName}</h5>
+      <span class="checkout-item__qty">\u041A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E: ${item.qty}</span>
+    </div>
+
+    <p class="checkout-item__specs">
+      ${makeSpecHtmlPreview(item.specs)}
+    </p>
+
+    <div class="checkout-item__price-row">
+      <span>\u0426\u0435\u043D\u0430:</span>
+      <span class="price-submain">${formatPrice(item.price)}</span>
+    </div>
+
+    <div class="checkout-item__price-row total">
+      <span>\u0418\u0442\u043E\u0433\u043E:</span>
+      <span class="price-main">${formatPrice(item.price * item.qty)}</span>
+    </div>
+  </div>
+</div>`;
     return card;
   }
+  clear() {
+    if (!this.container) return;
+    this.container.innerHTML = "";
+  }
+};
+
+// ShopMatic/js/modules/Checkout/CheckoutController.js
+var CheckoutController = class _CheckoutController {
+  constructor(cartService) {
+    this.cartService = cartService;
+    this.foxEngine = this.cartService.storage.shopMatic.foxEngine;
+    this.cartItems = [];
+    this.totalPrice = 0;
+    this.totalQty = 0;
+    this.promoCode = "";
+    this.goodsWordsArr = ["\u0442\u043E\u0432\u0430\u0440", "\u0442\u043E\u0432\u0430\u0440\u0430", "\u0442\u043E\u0432\u0430\u0440\u043E\u0432"];
+    this.isBuyNow = false;
+    this.buyNowStorageKey = "shopmatic_buy_now_item_v1";
+    this._hasCartBackup = false;
+    this.deliveryOptions = [
+      {
+        label: "\u041F\u043E \u043A\u043B\u0438\u043A\u0443",
+        deliveryType: "ON_DEMAND",
+        description: "\u041F\u043E \u043A\u043B\u0438\u043A\u0443 \u0437\u0430 15-30 \u043C\u0438\u043D\u0443\u0442",
+        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
+        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
+        checked: false,
+        disabled: true
+      },
+      {
+        label: "\u041F\u0443\u043D\u043A\u0442 \u0432\u044B\u0434\u0430\u0447\u0438",
+        deliveryType: "PICKUP",
+        description: "\u0420\u044F\u0434\u043E\u043C, 7 \u043C\u0438\u043D\u0443\u0442",
+        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
+        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
+        checked: true,
+        disabled: false
+      },
+      {
+        label: "\u041A\u0443\u0440\u044C\u0435\u0440",
+        deliveryType: "COURIER",
+        description: "\u0414\u043E\u0441\u0442\u0430\u0432\u043A\u0430 \u043D\u0430 \u0434\u043E\u043C",
+        time: "\u0417\u0430\u0432\u0442\u0440\u0430 \u0438\u043B\u0438 \u043F\u043E\u0437\u0436\u0435",
+        price: "\u0431\u0435\u0441\u043F\u043B\u0430\u0442\u043D\u043E",
+        checked: false,
+        disabled: true
+      }
+    ];
+    this.view = new CheckoutView();
+    this.view.setGoodsWords(this.goodsWordsArr);
+    this._bound = {
+      onApplyPromo: this._onApplyPromo.bind(this),
+      onCheckout: this._onCheckout.bind(this),
+      onContainerClick: this._onContainerClick.bind(this),
+      onContainerChange: this._onContainerChange.bind(this),
+      onReturnToCart: this._onReturnToCart.bind(this)
+    };
+  }
+  /**
+   * Инициализация страницы.
+   *
+   * @param {string|HTMLElement} selector - корневой контейнер (например '#checkout-page' или сам элемент)
+   * @param {Object} [options]
+   *  - buyNowItem: объект товара для режима "Купить сейчас"
+   */
+  async init(selector, options = {}) {
+    this.view.setContainer(selector);
+    const container = this.view.getContainer();
+    if (!container) {
+      console.error("[CheckoutController] Container not found:", selector);
+      return;
+    }
+    const { buyNowItem } = options;
+    if (buyNowItem) {
+      this.isBuyNow = true;
+      const normalized = this._normalizeItemForCheckout(buyNowItem);
+      this.cartItems = [normalized];
+      this._saveBuyNowToStorage(normalized);
+    } else {
+      const cached = this._loadBuyNowFromStorage();
+      if (cached) {
+        this.isBuyNow = true;
+        this.cartItems = [cached];
+      } else {
+        this.isBuyNow = false;
+        this.cartItems = await this.cartService.getCartItems();
+        if (!Array.isArray(this.cartItems)) {
+          this.cartItems = [];
+        }
+      }
+    }
+    this._hasCartBackup = await this._checkCartNotEmpty();
+    this.view.buildDeliveryOptions(this.deliveryOptions);
+    const { totalPrice, totalQty } = await this.view.renderCartItems(this.cartItems);
+    this.totalPrice = totalPrice;
+    this.totalQty = totalQty;
+    this.view.toggleReturnToCartButton(this.isBuyNow, this._hasCartBackup);
+    this.view.updateModeIndicator(this.isBuyNow);
+    this.view.bindEvents(this._bound);
+  }
+  /**
+   * Шорткат для создания checkout с одним товаром.
+   *
+   * @param {string|HTMLElement} containerSelector
+   * @param {Object} cartService
+   * @param {Object} buyNowItem
+   * @returns {CheckoutController}
+   */
+  static createSingleItem(containerSelector, cartService, buyNowItem) {
+    const page = new _CheckoutController(cartService);
+    const normalized = page._normalizeItemForCheckout(buyNowItem);
+    page._saveBuyNowToStorage(normalized);
+    page.init(containerSelector, { buyNowItem: normalized });
+    return page;
+  }
+  /* =======================
+     PRIVATE / INTERNAL
+     ======================= */
+  _normalizeItemForCheckout(raw) {
+    if (!raw || typeof raw !== "object") {
+      return {
+        id: null,
+        name: "",
+        fullname: "",
+        price: 0,
+        qty: 1,
+        picture: "[]",
+        specs: ""
+      };
+    }
+    const price = Number(
+      raw.price ?? raw.product_price ?? raw.cost ?? 0
+    ) || 0;
+    const qty = Number(
+      raw.qty ?? raw.quantity ?? 1
+    ) || 1;
+    let picture;
+    if (typeof raw.picture === "string") {
+      try {
+        JSON.parse(raw.picture);
+        picture = raw.picture;
+      } catch {
+        picture = JSON.stringify([raw.picture]);
+      }
+    } else if (Array.isArray(raw.picture) || Array.isArray(raw.pictures)) {
+      const arr = raw.picture || raw.pictures;
+      picture = JSON.stringify(arr);
+    } else {
+      picture = "[]";
+    }
+    return {
+      id: raw.id ?? raw.productId ?? null,
+      name: raw.name ?? raw.fullname ?? "",
+      fullname: raw.fullname ?? raw.name ?? "",
+      price,
+      qty,
+      picture,
+      specs: raw.specs ?? raw.description ?? ""
+    };
+  }
+  async _checkCartNotEmpty() {
+    try {
+      const items = await this.cartService.getCartItems();
+      return Array.isArray(items) && items.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  /* ===== buy-now storage helpers ===== */
+  _saveBuyNowToStorage(item) {
+    if (!item) return;
+    try {
+      const payload = { mode: "buyNow", item };
+      localStorage.setItem(this.buyNowStorageKey, JSON.stringify(payload));
+    } catch (e) {
+      console.warn("[CheckoutController] Failed to save buyNow item to storage", e);
+    }
+  }
+  _loadBuyNowFromStorage() {
+    try {
+      const raw = localStorage.getItem(this.buyNowStorageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.mode !== "buyNow" || !parsed.item) return null;
+      return this._normalizeItemForCheckout(parsed.item);
+    } catch (e) {
+      console.warn("[CheckoutController] Failed to load buyNow item from storage", e);
+      return null;
+    }
+  }
+  _clearBuyNowStorage() {
+    try {
+      localStorage.removeItem(this.buyNowStorageKey);
+    } catch (e) {
+      console.warn("[CheckoutController] Failed to clear buyNow storage", e);
+    }
+  }
+  /* ===== events ===== */
+  async _onReturnToCart() {
+    this._clearBuyNowStorage();
+    this.isBuyNow = false;
+    try {
+      const items = await this.cartService.getCartItems();
+      this.cartItems = Array.isArray(items) ? items : [];
+    } catch {
+      this.cartItems = [];
+    }
+    this._hasCartBackup = this.cartItems.length > 0;
+    const { totalPrice, totalQty } = await this.view.renderCartItems(
+      this.cartItems.map((i) => this._normalizeItemForCheckout(i))
+    );
+    this.totalPrice = totalPrice;
+    this.totalQty = totalQty;
+    this.view.toggleReturnToCartButton(this.isBuyNow, this._hasCartBackup);
+    this.view.updateModeIndicator(this.isBuyNow);
+  }
+  _onApplyPromo() {
+    this.promoCode = this.view.getPromoInputValue();
+    if (!this.promoCode) return;
+    if (this.promoCode === "DISCOUNT10") {
+      this.totalPrice = Math.round(this.totalPrice * 0.9);
+      this.view.updateTotalsUI(this.totalPrice, this.totalQty);
+      this.view.showPromoHint("\u041F\u0440\u043E\u043C\u043E\u043A\u043E\u0434 \u043F\u0440\u0438\u043C\u0435\u043D\u0435\u043D! \u0421\u043A\u0438\u0434\u043A\u0430 10%");
+    } else {
+      this.view.showPromoHint("\u041D\u0435\u0432\u0435\u0440\u043D\u044B\u0439 \u043F\u0440\u043E\u043C\u043E\u043A\u043E\u0434");
+    }
+  }
+  _onContainerClick(e) {
+    this.view.handleDeliveryClick(e);
+  }
+  _onContainerChange(e) {
+    this.view.handleDeliveryChange(e);
+  }
   _onCheckout() {
-    alert("\u041F\u043B\u0430\u0442\u0435\u0436\u043D\u0430\u044F \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F \u0435\u0449\u0435 \u043D\u0435 \u0440\u0435\u0430\u043B\u0438\u0437\u043E\u0432\u0430\u043D\u0430.");
+    if (this.isBuyNow) {
+      alert('\u0420\u0435\u0436\u0438\u043C "\u041A\u0443\u043F\u0438\u0442\u044C \u0441\u0435\u0439\u0447\u0430\u0441". \u041F\u043B\u0430\u0442\u0451\u0436\u043D\u0430\u044F \u043B\u043E\u0433\u0438\u043A\u0430 \u0435\u0449\u0451 \u043D\u0435 \u0440\u0435\u0430\u043B\u0438\u0437\u043E\u0432\u0430\u043D\u0430.');
+      this._clearBuyNowStorage();
+      this.isBuyNow = false;
+      this.view.toggleReturnToCartButton(this.isBuyNow, this._hasCartBackup);
+      this.view.updateModeIndicator(this.isBuyNow);
+    } else {
+      alert("\u041F\u043B\u0430\u0442\u0435\u0436\u043D\u0430\u044F \u0438\u043D\u0444\u043E\u0440\u043C\u0430\u0446\u0438\u044F \u0435\u0449\u0451 \u043D\u0435 \u0440\u0435\u0430\u043B\u0438\u0437\u043E\u0432\u0430\u043D\u0430.");
+    }
   }
   destroy() {
-    this.container.innerHTML = "";
+    this.view.unbindEvents();
+    this.view.clear();
   }
 };
 
@@ -7510,6 +8166,7 @@ var ShopMatic = class {
       miniCartTotalId: "miniCartTotal",
       miniCartListId: "miniCart",
       headerCartNumId: "cartNum",
+      mobileCartNumId: "mobileCartNum",
       miniCartHeaderTitleId: "miniCartHeaderTitle",
       productsCountId: "productsCount",
       storageKey: "gribkov_cart_v1",
@@ -7538,7 +8195,7 @@ var ShopMatic = class {
       container: "#viewed-items"
     });
     this.wishlistModule = null;
-    this.catalog = new Catalog({
+    this.catalog = new CatalogController({
       shop: this,
       rootId: this.opts.itemsId,
       catFilterId: this.opts.categoryFilterId,
@@ -7548,7 +8205,7 @@ var ShopMatic = class {
       searchBtnId: this.opts.searchBtnId,
       productsCountId: this.opts.productsCountId
     });
-    this.checkoutPage = new CheckoutPage(this.cart);
+    this.checkoutPage = new CheckoutController(this.cart);
     this._favsUnsub = null;
     this._bound = {
       onStorage: this._onStorageEvent.bind(this),
@@ -7575,10 +8232,12 @@ var ShopMatic = class {
     const miniCartTotalEl = document.getElementById(this.opts.miniCartTotalId);
     const miniCartListEl = document.getElementById(this.opts.miniCartListId);
     const headerCartNumEl = document.getElementById(this.opts.headerCartNumId);
+    const mobileCartNumEl = document.getElementById(this.opts.mobileCartNumId);
     const miniCartHeaderTitleEl = document.getElementById(this.opts.miniCartHeaderTitleId);
     try {
       this.cart.setDomRefs({
         headerCartNum: headerCartNumEl,
+        mobileCartNum: mobileCartNumEl,
         miniCartList: miniCartListEl,
         miniCartHeaderTitle: miniCartHeaderTitleEl,
         cartGrid: cartGridEl,
@@ -7670,10 +8329,13 @@ var ShopMatic = class {
   _updateWishUI() {
     try {
       const wishEl = document.getElementById("wishNum");
+      const mobileWishEl = document.getElementById("mobileFavorites");
       if (!wishEl) return;
       const count = this.favorites && typeof this.favorites.getCount === "function" ? this.favorites.getCount() : 0;
       wishEl.style.display = count > 0 ? "inline-flex" : "none";
       wishEl.textContent = String(count);
+      mobileWishEl.style.display = count > 0 ? "inline-flex" : "none";
+      mobileWishEl.textContent = String(count);
     } catch (e) {
       console.warn("_updateWishUI failed", e);
     }
@@ -7823,6 +8485,13 @@ var ShopMatic = class {
     this.cart.loadFromStorage();
     this.cart.updateCartUI();
     this._syncAllCardsControls();
+  }
+  /**
+   * Wrapper around Catalog.loadCatalog for compatibility with legacy code.
+   * Delegates to the Catalog instance.
+   */
+  async loadCatalog(args = {}) {
+    return this.catalog.loadCatalog(args);
   }
   /**
    * Wrapper around Catalog.applyFilters for compatibility with legacy code.

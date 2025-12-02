@@ -44,7 +44,7 @@
     .page {
       max-width:1200px;
       margin:32px auto;
-      padding:0 20px;
+      /* padding:0 20px; */
     }
 
     header.page__head {
@@ -98,16 +98,6 @@
       color:var(--text);
       font-weight:600;
     }
-
-    /* grid */
-    .grid {
-      display:grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap:var(--gap);
-    }
-    @media (max-width:1000px){ .grid{ grid-template-columns: repeat(3,1fr);} }
-    @media (max-width:720px){ .grid{ grid-template-columns: repeat(2,1fr);} }
-    @media (max-width:420px){ .grid{ grid-template-columns: 1fr;} }
 
     /* card */
     #wishlist-grid .wish-card {
@@ -197,3 +187,9 @@
       100%{ transform:scale(1); opacity:1 }
     }
     .icon-pop { animation: pop 420ms cubic-bezier(.2,.9,.3,1); }
+	
+	 @media (max-width: 480px) {
+		 header.page__head {
+			margin-top: 80px;
+		}
+	 }
