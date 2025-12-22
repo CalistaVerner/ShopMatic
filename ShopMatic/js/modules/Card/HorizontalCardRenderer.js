@@ -45,82 +45,6 @@ export class HorizontalCardRenderer extends BaseRenderer {
     };
   }
 
-  _buildHorizontalRowHtml(data) {
-    const esc = (s) => this.htmlEscape(String(s ?? ''));
-
-    const {
-      id,
-      fullname,
-      picture,
-      priceFormatted,
-      totalPriceFormatted,
-      qtyNum,
-      stockNum,
-      specsHtml,
-      included,
-    } = data;
-
-    const minQty = stockNum > 0 ? String(Math.max(1, qtyNum)) : '0';
-    const disabledAttr = stockNum <= 0 ? ' disabled aria-disabled="true"' : '';
-    const checkedAttr = included ? ' checked' : '';
-
-    return `
-      <div class="cart-item ${included ? '' : 'excluded-from-total'}" data-id="${esc(id)}" data-product-id="${esc(id)}" data-stock="${esc(stockNum)}">
-        <div class="cart-item__content">
-          <label class="y-checkbox cart-row-select" title="Включать в оформление">
-            <input type="checkbox" class="cart-item-checkbox" data-role="include"${checkedAttr}>
-            <span class="y-box">
-              <svg class="y-icon" viewBox="0 0 24 24" width="24" height="24">
-                <path d="M10.003 19 2.503 11.5l1.498-1.501 6.001 6.061 9.5-9.564 1.5 1.5z"></path>
-              </svg>
-            </span>
-          </label>
-
-          <div class="cart-item__image">
-            <img src="${esc(picture)}" alt="${esc(fullname)}" loading="lazy">
-          </div>
-
-          <div class="cart-item__details">
-            <div class="cart-item__title">
-              <a href="#product/${encodeURIComponent(id)}" rel="noopener noreferrer">${esc(fullname)}</a>
-            </div>
-            ${specsHtml}
-          </div>
-
-          <div class="cart-item__right" role="group" aria-label="Управление товаром в корзине">
-            <div class="cart-item__price" aria-hidden="false">
-              <span class="price-value">${esc(priceFormatted)}</span>
-              <div class="price-total">
-                Итого: <span class="price-total-value">${esc(totalPriceFormatted)}</span>
-              </div>
-            </div>
-
-            <div class="qty-controls" data-id="${esc(id)}" role="group" aria-label="Количество товара">
-              <button class="qty-btn qty-decr" type="button" aria-label="Уменьшить количество">−</button>
-              <input class="qty-input" type="number" value="${minQty}" min="1" max="${stockNum}"
-                     aria-label="Количество" inputmode="numeric"${disabledAttr}/>
-              <button class="qty-btn qty-incr" type="button" aria-label="Увеличить количество">+</button>
-            </div>
-          </div>
-
-          <div class="cart-item__controls">
-            <div class="cart-item__icons">
-              <button class="wishlist-btn fav-btn" type="button" data-role="fav"
-                      title="Добавить в избранное" aria-label="Добавить в избранное">
-                <i class="icon-heart" aria-hidden="true"></i>
-              </button>
-              <button class="remove-btn" type="button" data-id="${esc(id)}"
-                      title="Удалить" aria-label="Удалить товар">
-                <i class="fa-regular fa-xmark" aria-hidden="true"></i>
-              </button>
-            </div>
-          </div>
-
-          <div class="stock-warning" aria-hidden="true" style="display:none;">Товара нет в наличии</div>
-        </div>
-      </div>`;
-  }
-
   _configureQtyControls(produced, qtyNum = 1, stockNum = 0) {
     if (!produced) return;
 
@@ -213,80 +137,128 @@ export class HorizontalCardRenderer extends BaseRenderer {
     return true;
   }
 
-  _updateRowDom(row, data = {}) {
-    if (!row || typeof row !== 'object') return;
+_updateRowDom(row, data = {}) {
+  if (!row || typeof row !== 'object') return;
 
-    const {
-      id,
-      fullname,
-      picture,
-      priceFormatted,
-      totalPriceFormatted,
-      qtyNum,
-      stockNum,
-      specsHtml,
-      included,
-    } = data;
+  const {
+    id,
+    fullname,
+    picture,
+    priceFormatted,
+    totalPriceFormatted,
+    qtyNum,
+    stockNum,
+    specsHtml,
+    included,
+  } = data;
 
-    // keep attributes for other systems
-    try {
-      if (String(id) && row.setAttribute) {
-        row.setAttribute('data-id', String(id));
-        row.setAttribute('data-product-id', String(id));
+  const safeId = String(id ?? '').trim();
+  const safeName = String(fullname ?? '').trim();
+
+  try {
+    if (safeId && row.setAttribute) {
+      row.setAttribute('data-id', safeId);
+      row.setAttribute('data-product-id', safeId);
+    }
+    row.dataset.stock = String(stockNum ?? '');
+  } catch (_) {}
+
+  this._applyIncludeUI(row, included);
+
+  try {
+    let a =
+      row.querySelector?.('.cart-item__title a') ||
+      row.querySelector?.('a[href^="#product/"]') ||
+      row.querySelector?.('a[href*="#product/"]');
+
+    if (!a) {
+      const titleWrap = row.querySelector?.('.cart-item__title');
+      if (titleWrap) {
+        a = document.createElement('a');
+        a.rel = 'noopener noreferrer';
+        titleWrap.appendChild(a);
       }
-      row.dataset.stock = String(stockNum ?? '');
-    } catch (_) {}
-
-    // include checkbox UI
-    this._applyIncludeUI(row, included);
-
-    try {
-      const a = row.querySelector?.('a[href*="#product/"]');
-      if (a?.setAttribute) {
-        a.setAttribute('href', `#product/${encodeURIComponent(String(id))}`);
-        if (a.firstChild && a.firstChild.nodeType === 3) {
-          a.firstChild.nodeValue = fullname;
-        } else {
-          a.textContent = fullname;
-        }
-      } else {
-        const title = row.querySelector?.('.cart-item__title, .cart-item__name, .cart-item__title a');
-        if (title) title.textContent = fullname;
-      }
-    } catch (e) {
-      this._log(`updateRowDom title error: ${e}`, 'WARN');
     }
 
-    try {
-      const img = row.querySelector?.('.cart-item__image img, img');
-      if (img?.setAttribute) {
-        img.setAttribute('src', String(picture));
-        img.setAttribute('alt', String(fullname));
-      }
-    } catch (e) {
-      this._log(`updateRowDom image error: ${e}`, 'WARN');
+    if (a?.setAttribute) {
+      if (safeId) a.setAttribute('href', `#product/${encodeURIComponent(safeId)}`);
+      a.textContent = safeName;
     }
-
-    try {
-      const pv = row.querySelector?.('.price-value');
-      if (pv) pv.textContent = String(priceFormatted);
-      const pt = row.querySelector?.('.price-total-value');
-      if (pt) pt.textContent = String(totalPriceFormatted);
-    } catch (e) {
-      this._log(`updateRowDom price error: ${e}`, 'WARN');
-    }
-
-    this._configureQtyControls(row, qtyNum, stockNum);
-
-    try {
-      if (specsHtml) {
-        const specsNode = row.querySelector?.('.cart-item__info, .cart-item__details');
-        if (specsNode) specsNode.innerHTML = specsHtml;
-      }
-    } catch (e) {
-      this._log(`updateRowDom specs error: ${e}`, 'WARN');
-    }
+  } catch (e) {
+    this._log(`updateRowDom title error: ${e}`, 'WARN');
   }
+
+  try {
+    const img = row.querySelector?.('.cart-item__image img, img');
+    if (img?.setAttribute) {
+      img.setAttribute('src', String(picture ?? ''));
+      img.setAttribute('alt', safeName);
+    }
+  } catch (e) {
+    this._log(`updateRowDom image error: ${e}`, 'WARN');
+  }
+
+  try {
+    const pv = row.querySelector?.('.price-value');
+    if (pv) pv.textContent = String(priceFormatted ?? '');
+    const pt = row.querySelector?.('.price-total-value');
+    if (pt) pt.textContent = String(totalPriceFormatted ?? '');
+  } catch (e) {
+    this._log(`updateRowDom price error: ${e}`, 'WARN');
+  }
+
+  this._configureQtyControls(row, qtyNum, stockNum);
+
+  try {
+    const details = row.querySelector?.('.cart-item__details');
+    if (!details) return;
+
+    const legacyLi = details.querySelector?.('li.cart-itemSpecs');
+    const roleWrap = details.querySelector?.('[data-role="specs"]');
+    const divWrap = details.querySelector?.('.cart-item__specs');
+
+    let target = legacyLi || roleWrap || divWrap || null;
+
+    if (!target) {
+      const ul = details.querySelector?.('ul');
+      if (ul) {
+        const li = document.createElement('li');
+        li.className = 'cart-itemSpecs';
+        li.setAttribute('data-role', 'specs');
+        const titleLi = ul.querySelector?.('li.cart-item__title');
+        if (titleLi && titleLi.nextSibling) ul.insertBefore(li, titleLi.nextSibling);
+        else ul.appendChild(li);
+        target = li;
+      } else {
+        const div = document.createElement('div');
+        div.className = 'cart-item__specs';
+        div.setAttribute('data-role', 'specs');
+        details.appendChild(div);
+        target = div;
+      }
+    }
+
+    if (legacyLi) {
+      if (divWrap && divWrap !== legacyLi) {
+        try { divWrap.remove(); } catch {}
+      }
+      if (roleWrap && roleWrap !== legacyLi) {
+        try { roleWrap.remove(); } catch {}
+      }
+    } else if (roleWrap) {
+      if (divWrap && divWrap !== roleWrap) {
+        try { divWrap.remove(); } catch {}
+      }
+    }
+
+    if (target) {
+      target.innerHTML = '';
+      if (specsHtml) target.innerHTML = String(specsHtml);
+    }
+  } catch (e) {
+    this._log(`updateRowDom specs error: ${e}`, 'WARN');
+  }
+}
 
   async _createRowFromData(data) {
     if (!data) return null;
@@ -319,7 +291,7 @@ export class HorizontalCardRenderer extends BaseRenderer {
     }
 
     if (!rowHtml) {
-      rowHtml = this._buildHorizontalRowHtml(data);
+      rowHtml = await this.renderTemplate('cardHorizontal', data);
     }
 
     let produced;
@@ -371,7 +343,7 @@ export class HorizontalCardRenderer extends BaseRenderer {
 
   async createCard(item = {}) {
     const data = this._normalizeCartItem(item);
-    return this._createRowFromData(data);
+    return await this.renderTemplate('cardHorizontal', data);
   }
 
   async renderListHorizontal(cartEl, cartArr = [], options = {}) {

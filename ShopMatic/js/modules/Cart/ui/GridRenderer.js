@@ -1,6 +1,78 @@
+/**
+ * GridRenderer
+ * @author Calista Verner
+ *
+ * Fix:
+ *  - Never treat inner elements (title/img/etc) as rows when hiding duplicates.
+ *  - Always operate on real row nodes only.
+ */
 export class GridRenderer {
   constructor(ctx) {
     this.ctx = ctx;
+  }
+
+  _idKey(it) {
+    return String(it?.name ?? it?.id ?? it?.productId ?? '').trim();
+  }
+
+  _cssEscape(s) {
+    try {
+      // native
+      if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(String(s));
+    } catch {}
+    // minimal fallback
+    return String(s).replace(/"/g, '\\"');
+  }
+
+  /**
+   * IMPORTANT: find ONLY row elements, not nested nodes.
+   * We intentionally query for typical row classes first.
+   */
+  _findGridRowsById(id) {
+    const c = this.ctx;
+    const grid = c?.cartGrid;
+    const key = String(id ?? '').trim();
+    if (!grid || !key) return [];
+
+    const esc = this._cssEscape(key);
+
+    const selectors = [
+      `.cart-item[data-product-id="${esc}"]`,
+      `.cart-item[data-id="${esc}"]`,
+      `.cart-row[data-product-id="${esc}"]`,
+      `.cart-row[data-id="${esc}"]`,
+      `.cart__row[data-product-id="${esc}"]`,
+      `.cart__row[data-id="${esc}"]`,
+      // fallback if markup does not use classes but row uses attribute
+      `[data-product-id="${esc}"].cart-item, [data-id="${esc}"].cart-item`,
+      `[data-product-id="${esc}"].cart-row, [data-id="${esc}"].cart-row`,
+      `[data-product-id="${esc}"].cart__row, [data-id="${esc}"].cart__row`,
+    ];
+
+    for (const sel of selectors) {
+      try {
+        const nodes = Array.from(grid.querySelectorAll(sel));
+        if (nodes.length) return nodes;
+      } catch {}
+    }
+
+    // last resort: use RowSync but normalize to row via closest()
+    try {
+      const raw = c.rowSync?.findAllRowsByIdInGrid?.(key) || [];
+      const out = [];
+      const seen = new Set();
+      for (const n of raw) {
+        const row = c.rowSync?.findRowFromElement?.(n) || null;
+        const pick = row || n;
+        if (pick && !seen.has(pick)) {
+          seen.add(pick);
+          out.push(pick);
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   async renderItemsToTemp(items) {
@@ -14,15 +86,14 @@ export class GridRenderer {
     const c = this.ctx;
     const arr = Array.isArray(c.getCart?.()) ? c.getCart() : (Array.isArray(c.cart) ? c.cart : []);
 
-    // IMPORTANT: render via Card (it mounts + delegation)
     await c.shopMatic.card.renderCardList(arr, c.cartGrid, 'HORIZONTAL');
 
-    // After full render: sync controls & included UI defensively
     try {
       for (const it of arr) {
-        const id = String(it?.name ?? it?.id ?? '').trim();
+        const id = this._idKey(it);
         if (!id) continue;
-        const rows = c.rowSync.findAllRowsByIdInGrid(id) || [];
+
+        const rows = this._findGridRowsById(id);
         for (const r of rows) {
           try { c.rowSync.restoreRow(r); } catch {}
           try { c.rowSync.syncRowControls(r, it); } catch {}
@@ -34,24 +105,28 @@ export class GridRenderer {
     }
   }
 
-  _safeQuery(selector, root) {
-    try { return (root || this.ctx.cartGrid)?.querySelector(selector) ?? null; } catch { return null; }
-  }
-
   _findRowFromElement(el) {
     return this.ctx.rowSync.findRowFromElement(el);
+  }
+
+  _stampRowIdAttrs(node, id) {
+    if (!node || !id) return;
+    try { node.setAttribute?.('data-id', String(id)); } catch {}
+    try { node.setAttribute?.('data-product-id', String(id)); } catch {}
   }
 
   _replaceOrAppendProduced(produced, existingNodes) {
     const c = this.ctx;
     if (!c?.cartGrid || !produced) return;
 
-    if (!Array.isArray(existingNodes) || existingNodes.length === 0) {
+    const existing = Array.isArray(existingNodes) ? existingNodes : [];
+
+    if (existing.length === 0) {
       try { c.cartGrid.appendChild(produced); } catch {}
       return;
     }
 
-    const first = existingNodes[0];
+    const first = existing[0];
     if (first && first.parentNode) {
       try { first.parentNode.replaceChild(produced, first); }
       catch { try { c.cartGrid.appendChild(produced); } catch {} }
@@ -59,9 +134,9 @@ export class GridRenderer {
       try { c.cartGrid.appendChild(produced); } catch {}
     }
 
-    // IMPORTANT: no DOM deletions; just hide duplicates
-    for (let i = 1; i < existingNodes.length; i++) {
-      try { c.rowSync.markRemoved(existingNodes[i]); } catch {}
+    // IMPORTANT: hide ONLY real row duplicates (not title/img nodes)
+    for (let i = 1; i < existing.length; i++) {
+      try { c.rowSync.markRemoved(existing[i]); } catch {}
     }
   }
 
@@ -74,22 +149,19 @@ export class GridRenderer {
 
     const item = c._getCartItemById?.(id);
 
-    // If item removed from DATA: hide rows, do NOT delete
     if (!item) {
-      const rows = c.rowSync.findAllRowsByIdInGrid(id) || [];
+      const rows = this._findGridRowsById(id);
       for (const r of rows) {
         try { c.rowSync.markRemoved(r); } catch {}
       }
-      // If cart empty — can render empty state via full render
       if ((c.getCart?.()?.length || 0) === 0) await this.renderFullGrid();
       return;
     }
 
-    // Otherwise: produce fresh row and replace first, hide duplicates
     let producedRow = null;
     try {
       const tmp = await this.renderItemsToTemp([item]);
-      producedRow = tmp.querySelector('.cart-item') || tmp.firstElementChild;
+      producedRow = tmp.querySelector('.cart-item') || tmp.querySelector('.cart-row') || tmp.firstElementChild;
     } catch (err) {
       c._logError?.('renderer.render failed', err);
       producedRow = null;
@@ -101,9 +173,9 @@ export class GridRenderer {
     }
 
     const clone = producedRow.cloneNode(true);
-    try { clone.setAttribute?.('data-id', id); } catch {}
+    this._stampRowIdAttrs(clone, id);
 
-    const existing = c.rowSync.findAllRowsByIdInGrid(id) || [];
+    const existing = this._findGridRowsById(id);
     this._replaceOrAppendProduced(clone, existing);
 
     const mainRow = this._findRowFromElement(clone) || clone;
@@ -125,7 +197,7 @@ export class GridRenderer {
       if (!item) return { id: key, removed: true };
       try {
         const tmp = await this.renderItemsToTemp([item]);
-        const produced = tmp.querySelector('.cart-item') || tmp.firstElementChild;
+        const produced = tmp.querySelector('.cart-item') || tmp.querySelector('.cart-row') || tmp.firstElementChild;
         return { id: key, produced, item };
       } catch (error) {
         return { id: key, error };
@@ -153,7 +225,7 @@ export class GridRenderer {
       if (!id) continue;
 
       if (entry.removed) {
-        const rows = c.rowSync.findAllRowsByIdInGrid(id) || [];
+        const rows = this._findGridRowsById(id);
         for (const rr of rows) {
           try { c.rowSync.markRemoved(rr); } catch {}
         }
@@ -163,9 +235,9 @@ export class GridRenderer {
       if (!entry.produced) { hadFailure = true; continue; }
 
       const produced = entry.produced.cloneNode(true);
-      try { produced.setAttribute?.('data-id', id); } catch {}
+      this._stampRowIdAttrs(produced, id);
 
-      const existing = c.rowSync.findAllRowsByIdInGrid(id) || [];
+      const existing = this._findGridRowsById(id);
       this._replaceOrAppendProduced(produced, existing);
 
       const mainRow = this._findRowFromElement(produced) || produced;
@@ -190,7 +262,7 @@ export class GridRenderer {
         const id = String(idRaw ?? '').trim();
         if (!id) continue;
 
-        const rows = c.rowSync.findAllRowsByIdInGrid(id) || [];
+        const rows = this._findGridRowsById(id);
         const item = c._getCartItemById?.(id);
 
         for (const r of rows) {
@@ -198,7 +270,6 @@ export class GridRenderer {
             try { c.rowSync.restoreRow(r); } catch {}
             try { c.rowSync.syncRowControls(r, item); } catch (e) { c._logError?.('syncRowControls failed', e); }
           } else {
-            // removed from DATA => hide
             try { c.rowSync.markRemoved(r); } catch {}
           }
           try { c.totals.updateFavButtonState?.(r, id); } catch (e) { c._logError?.('updateFavButtonState failed', e); }

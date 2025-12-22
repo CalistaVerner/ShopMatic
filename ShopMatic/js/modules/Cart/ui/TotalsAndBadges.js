@@ -84,7 +84,9 @@ export class TotalsAndBadges {
 
   updateTotalsUI(totalCount, totalSum) {
     const { ctx } = this;
-    ctx._addMobileCheckoutBlock();
+
+    // Mobile checkout block lifecycle is owned by CheckoutController.
+    // TotalsAndBadges only updates numbers.
 
     try {
       if (ctx.cartTotal) ctx.cartTotal.textContent = formatPrice(totalSum);

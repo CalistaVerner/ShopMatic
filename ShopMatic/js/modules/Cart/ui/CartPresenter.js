@@ -9,7 +9,28 @@
  *  - Emit events
  *
  * UI layers (listeners/helpers) MUST call dispatch() only.
+ *
+ * Contract (important):
+ *  - UI code MUST NOT call CartBase mutations directly.
+ *    It MUST call presenter.dispatch(action) only.
+ *  - Presenter mutates domain via ctx._domain* methods (no UI side-effects).
+ *  - Presenter triggers exactly one UI refresh pipeline: ctx._updateCartUI(targetId).
+ *  - dispatch() is re-entrancy safe: concurrent calls collapse into the same pipeline.
+ *
+ * Supported actions (type is case-insensitive):
+ *  - { type:'ADD', id, qty? }
+ *  - { type:'REMOVE', id }
+ *  - { type:'QTY_SET', id, qty, sourceRow? }
+ *  - { type:'QTY_INC', id, sourceRow? }
+ *  - { type:'QTY_DEC', id, sourceRow? }  // can reach 0 => domain removes
+ *  - { type:'INCLUDE_SET', id, included }
+ *  - { type:'INCLUDE_ALL', included }
+ *  - { type:'FAV_TOGGLE', id }
+ *
+ * return value:
+ *  - dispatch() resolves to CartStateSnapshot (from ctx._updateCartUI).
  */
+
 export class CartPresenter {
   /**
    * @param {any} ctx CartUI (extends CartBase in your project)

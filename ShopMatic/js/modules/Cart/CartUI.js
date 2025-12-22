@@ -8,6 +8,7 @@ import { IncludedStates } from './ui/IncludedStates.js';
 import { TotalsAndBadges } from './ui/TotalsAndBadges.js';
 import { CartPresenter } from './ui/CartPresenter.js';
 import { CheckoutController } from './ui/CheckoutController.js';
+import { CartStateSnapshot } from './CartStateSnapshot.js';
 
 export class CartUI extends CartBase {
   constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
@@ -64,52 +65,120 @@ export class CartUI extends CartBase {
 
   /**
    * THE ONLY refresh pipeline (called by presenter).
+   *
+   * This method is intentionally small and linear:
+   *   1) Prepare domain/index
+   *   2) Refresh products projection
+   *   3) Sync included state
+   *   4) Compute totals
+   *   5) Render (miniCart + grid)
+   *   6) Update totals/badges + persist + emit events
    */
   async _updateCartUI(targetId = null) {
     const overrideIdKey = targetId ? this._normalizeIdKey(targetId) : null;
-    const changedIdsSnapshot = overrideIdKey ? [String(overrideIdKey)] : Array.from(this._pendingChangedIds || []);
+    const changedIdsSnapshot = this._snapshotChangedIds(overrideIdKey);
 
-    this._dedupeCart();
-    this._rebuildIndex();
-
+    this._prepareDomain();
     await this._refreshProducts(overrideIdKey);
-
-    if (!this._includedStatesLoaded) {
-      try { this.included.loadIncludedStatesFromLocalStorage(); } catch (e) { this._logError('loadIncludedStates failed', e); }
-      this._includedStatesLoaded = true;
-    } else {
-      // keep included projected onto items when needed
-      try { this.included.applyToItems?.(this.cart); } catch {}
-    }
+    this._syncIncludedProjectionOnce();
 
     const { totalCount, totalSum } = this.totals.calculateTotals();
     this.totals.updateBadges(totalCount);
 
-    await this.miniCart.render(this.getCart());
+    await this._renderMiniCart();
+    await this._renderGrid(overrideIdKey, changedIdsSnapshot);
 
+    this.totals.updateTotalsUI(totalCount, totalSum);
+    this._finalSyncRows(changedIdsSnapshot);
+    this._scheduleSave();
+
+    const snapshot = this._buildSnapshot({
+      totalCount,
+      totalSum,
+      changedIdsSnapshot,
+      targetId: overrideIdKey,
+      reason: overrideIdKey ? 'item_update' : 'update'
+    });
+
+    this._emitCartUpdated(snapshot);
+
+    // Clear after successful pipeline so next partial update is accurate.
+    try { this._pendingChangedIds?.clear?.(); } catch {}
+
+    return snapshot;
+  }
+
+  _snapshotChangedIds(overrideIdKey) {
+    if (overrideIdKey) return [String(overrideIdKey)];
+    return Array.from(this._pendingChangedIds || []);
+  }
+
+  _prepareDomain() {
+    this._dedupeCart();
+    this._rebuildIndex();
+  }
+
+  _syncIncludedProjectionOnce() {
+    if (!this.included) return;
+
+    if (!this._includedStatesLoaded) {
+      try { this.included.loadIncludedStatesFromLocalStorage(); }
+      catch (e) { this._logError('loadIncludedStates failed', e); }
+      this._includedStatesLoaded = true;
+      return;
+    }
+
+    // Keep included projected onto items (pure projection, no orchestration)
+    try { this.included.applyToItems?.(this.cart); } catch {}
+  }
+
+  async _renderMiniCart() {
+    try {
+      await this.miniCart?.render?.(this.getCart());
+    } catch (e) {
+      this._logError('miniCart.render failed', e);
+    }
+  }
+
+  async _renderGrid(overrideIdKey, changedIdsSnapshot) {
     try {
       if (overrideIdKey) await this.rendererUtils.updateGridSingle(overrideIdKey);
       else await this.rendererUtils.updateGridPartial(changedIdsSnapshot);
     } catch (e) {
       this._logError('grid update failed', e);
-      try { await this.rendererUtils.renderFullGrid(); } catch (er) { this._logError('full render failed', er); }
+      try { await this.rendererUtils.renderFullGrid(); }
+      catch (er) { this._logError('full render failed', er); }
     }
-
-    this.totals.updateTotalsUI(totalCount, totalSum);
-
-    try { this.rendererUtils.finalSyncRows(changedIdsSnapshot); } catch (e) { this._logError('finalSyncRows failed', e); }
-
-    this._scheduleSave();
-
-    try {
-      this.eventBus?.emit?.('cartUpdated', { cart: this.getCart(), totalCount, totalSum });
-      this.eventBus?.emit?.('cart:updated', { cart: this.getCart(), totalCount, totalSum });
-    } catch {}
-
-    return { cart: this.getCart(), totalCount, totalSum };
   }
-  
-    _msg(key, vars = {}) {
+
+  _finalSyncRows(changedIdsSnapshot) {
+    try { this.rendererUtils.finalSyncRows(changedIdsSnapshot); }
+    catch (e) { this._logError('finalSyncRows failed', e); }
+  }
+
+  _buildSnapshot({ totalCount, totalSum, changedIdsSnapshot, targetId, reason }) {
+    let includedMap = {};
+    try { includedMap = this.included?.getMapSnapshot?.() || {}; } catch {}
+
+    return new CartStateSnapshot({
+      cart: this.getCart(),
+      totalCount,
+      totalSum,
+      includedMap,
+      changedIds: changedIdsSnapshot,
+      targetId: targetId || null,
+      reason: reason || 'update'
+    });
+  }
+
+  _emitCartUpdated(snapshot) {
+    try {
+      // Single canonical event name (legacy alias removed)
+      this.eventBus?.emit?.('cart:updated', snapshot);
+    } catch {}
+  }
+
+  _msg(key, vars = {}) {
     const pool = this.constructor?.UI_MESSAGES || {};
     const tpl = pool[key] ?? '';
     return String(tpl).replace(/\{([^}]+)\}/g, (m, k) =>
@@ -124,36 +193,6 @@ export class CartUI extends CartBase {
   _bindCheckout(container = document.body) {
     this.checkout.bind(container);
   }
-  
-  	_addMobileCheckoutBlock(container = document.body) {
-		if (this.shopMatic.deviceUtil.isMobile) {
-			if (window.location.hash.includes('cart')) {
-				const footerMobile = container.querySelector('.menu__content');
-				if (!document.getElementById('mobileCheckoutBlock')) {
-					const newContent = document.createElement('div');
-					newContent.innerHTML = `
-					<section class="mobileCheckout" id="mobileCheckoutBlock">
-						<a href="#page/checkout" class="btn-checkout">
-							<ul>
-								<li class="mobileProducts">
-									<span id="mobileProductCount"></span>
-									<span id="mobileProductWord"></span>
-								</li>
-								<li>
-									<b>К оформлению</b>
-								</li>
-								<li class="mobilePrice">
-									<span id="mobileTotalPrice">0</span>
-								</li>
-							</ul>
-						</a>
-					</section>`;
-					footerMobile.insertBefore(newContent, footerMobile.firstChild);
-				} else {}
-			}
-		}
-	}
-
 
   _unbindCheckout(container = document.body) {
     this.checkout.unbind(container);
