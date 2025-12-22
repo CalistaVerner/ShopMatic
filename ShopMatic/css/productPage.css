@@ -35,7 +35,7 @@
     --text: #111827;
     --muted-2: #9aa3ad;
     --price-term: var(--success);
-    --control-primary-hover: #ffd86b;
+    --control-primary-hover: #ff9f52;
     --specs-gap: 12px;
     --specs-title-color: #6b6b6b; /* цвет заголовка */
     --specs-value-color: #111827; /* цвет значения */
@@ -44,21 +44,17 @@
     --specs-font-size: 14px;
     --specs-title-weight: 600;
     --specs-radius: 6px;
-	
-	  --crumb-bg: rgba(255,255,255,0.04);
-  --crumb-bg-soft: rgba(255,255,255,0.02);
-  --crumb-border: rgba(0,0,0,0.06);
-
-  --text-primary: #1f2937;         /* темный текст (light theme) */
-  --muted: #6b7280;                /* muted text */
-  --accent: #0ea5a4;               /* primary accent (teal) */
-  --accent-weak: rgba(14,165,164,0.12);
-
-  --shadow-subtle: 0 1px 2px rgba(16,24,40,0.04);
-  --radius: 10px;
-
-  --font-size-small: 0.8125rem;    /* ~13px */
-  --gap: 8px;
+    --crumb-bg: rgba(255,255,255,0.04);
+    --crumb-bg-soft: rgba(255,255,255,0.02);
+    --crumb-border: rgba(0,0,0,0.06);
+    --text-primary: #1f2937;         /* темный текст (light theme) */
+    --muted: #6b7280;                /* muted text */
+    --accent: #0ea5a4;               /* primary accent (teal) */
+    --accent-weak: rgba(14,165,164,0.12);
+    --shadow-subtle: 0 1px 2px rgba(16,24,40,0.04);
+    --radius: 10px;
+    --font-size-small: 0.8125rem;    /* ~13px */
+    --gap: 8px;
 }
 
 /* ---------- Buybox (scoped) ---------- */
@@ -130,6 +126,13 @@
     outline-offset: 2px;
 }
 
+.product-page .main-card > .imgSpecsList {
+	
+list-style: none;
+	
+padding: 0;
+}
+
 .product-page .btn-primary {
     background: var(--primary);
     color: #fff;
@@ -137,12 +140,11 @@
 
 .product-page .btn.btn-yellow {
     background: var(--control-primary);
-    color: #111;
+    color: #ffffff;
 }
 
 .product-page .btn.btn-yellow:hover {
     background: var(--control-primary-hover);
-    color: #111;
 }
 
 .product-page .btn.btn-outline {
@@ -255,7 +257,7 @@
 }
 
 .cart-item__info .specsBlock {
-	width: 55%;
+	width: 100%;
 }
 
 .specsEntry {
@@ -286,6 +288,7 @@
   background: var(--specs-line-accent); /* можно заменить на однотонный цвет */
   opacity: 1;
   min-width: 50px;
+  margin: 10px 0;
 }
 
 /* Значение — справа, можно переноситься, или зафиксировать ширину */
@@ -306,7 +309,7 @@
     gap: 8px;
   }
   .specsTitle { white-space: normal; }
-  .specsEntry .separator { order: 3; width: 100%; height: 1px; }
+  .specsEntry .separator {order: 3;width: 100%;height: 1px;}
   .specsValue { order: 4; text-align: left; max-width: 100%; }
 }
 
@@ -476,80 +479,20 @@ button.fav-toggle i.active {
 	display: flex;
 }
 
-/* responsive */
-@media (max-width: 980px) {
-    .product-page {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-
-    .product-gallery {
-        flex-direction: row;
-        align-items: center;
-    }
-
-    .gallery-thumbs {
-        flex-direction: row;
-        order: 1;
-    }
-
-    .gallery-main {
-        order: 2;
-    }
-
-    .product-buybox {
-        order: 3;
-    }
-
-    .gallery-main .product-main-img {
-        height: 48vh;
-        border-radius: 10px;
-    }
-
-    .buybox-card {
-        position: relative;
-        top: auto;
-    }
-}
-
-@media (max-width: 560px) {
-    .gallery-thumbs button {
-        width:52px;
-        height: 52px;
-    }
-
-    .gallery-main .product-main-img {
-        height: 40vh;
-    }
-
-    .product-title {
-        font-size: 20px;
-    }
-}
-
-/* Основной контейнер */
 nav.breadcrumbs{
   display: inline-flex;
   align-items: center;
   border-radius: calc(var(--radius) - 2px);
   background: linear-gradient(180deg, var(--crumb-bg) 0%, var(--crumb-bg-soft) 100%);
   box-shadow: var(--shadow-subtle);
-  border: 1px solid var(--crumb-border);
+  border: 1px solid rgb(159 134 134 / 57%);
   line-height: 1;
   user-select: none;
   -webkit-font-smoothing: antialiased;
   transition: background 160ms ease, color 160ms ease, transform 120ms ease;
 }
 
-/* small modifier to reduce paddings if needed (keeps API from your HTML) */
-nav.breadcrumbs.small{
-  padding: 4px 8px;
-  gap: 6px;
-  font-size: 9pt;
-}
-
-/* individual crumb */
-nav.breadcrumbs .crumb{
+nav.breadcrumbs > .crumb{
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -558,7 +501,7 @@ nav.breadcrumbs .crumb{
   background: transparent;
   color: var(--muted);
   white-space: nowrap;
-  max-width: 18ch;                /* ограничит очень длинные имена */
+  max-width: 18ch;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: color 160ms ease, background 160ms ease, transform 120ms ease;
@@ -566,41 +509,13 @@ nav.breadcrumbs .crumb{
   font-weight: 600;
 }
 
-/* Семантические классы для стилизации */
-nav.breadcrumbs .category{
-  color: var(--text-primary);
-  font-weight: 700;
-  padding-left: 8px;
-  padding-right: 8px;
-  border-radius: 8px;
-}
-
-/* Название бренда — менее акцентированно */
-nav.breadcrumbs .brand{
+nav.breadcrumbs > .divider{
   color: var(--muted);
-  font-weight: 600;
-  padding: 6px 8px;
-}
-
-/* разделитель (если используется элемент .divider) */
-nav.breadcrumbs .divider{
-  color: var(--muted);
-  font-size: 0.9em;
+  font-size: 11pt;
   opacity: 0.9;
   margin: 0 2px;
   user-select: none;
-}
-
-/* Если divider не в разметке — используем псевдоэлемент */
-nav.breadcrumbs .crumb + .crumb::before{
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 1px;
-  margin: 0 6px;
-  vertical-align: middle;
-  background: linear-gradient(90deg, transparent, var(--crumb-border), transparent);
-  border-radius: 1px;
+  font-weight: bolder;
 }
 
 /* hover/focus styles — для интерактивности (если элементы кликабельны) */
@@ -628,8 +543,78 @@ nav.breadcrumbs .brand.selected {
   border-radius: 8px;
 }
 
+/* responsive */
+
+@media (max-width: 480px) {
+	
+	.cart-item__info .specsBlock {
+		width: 100%;	
+	}
+	
+    .gallery-thumbs {
+		display: none;
+    }
+	
+	.gallery-main {
+        display: ruby;
+    }
+}
+
+@media (max-width: 980px) {
+    .product-page {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .product-gallery {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .gallery-thumbs {
+        flex-direction: row;
+        order: 1;
+    }
+
+    .gallery-main {
+        order: 2;
+    }
+
+    .product-buybox {
+        order: 3;
+    }
+
+    .gallery-main .product-main-img {
+        border-radius: 10px;
+    }
+
+    .buybox-card {
+        position: relative;
+        top: auto;
+    }
+}
+
+@media (max-width: 560px) {
+    .gallery-thumbs button {
+        width:52px;
+        height: 52px;
+    }
+
+    .gallery-main .product-main-img {
+    }
+
+    .product-title {
+        font-size: 20px;
+    }
+}
+
 /* Адаптив: на узких экранах сократить отступы и скрыть детали */
 @media (max-width: 460px){
+	
+	.product-page {
+		display: flow-root;
+	}
+
   nav.breadcrumbs{
     padding: 4px 6px;
     gap: 6px;
@@ -637,7 +622,7 @@ nav.breadcrumbs .brand.selected {
   }
   nav.breadcrumbs .crumb{
     padding: 4px 6px;
-    max-width: 12ch;
+    font-size: 12px;
   }
   nav.breadcrumbs .category{
     font-size: 0.92em;
@@ -645,15 +630,4 @@ nav.breadcrumbs .brand.selected {
   nav.breadcrumbs .brand{
     display: none; /* если место критично — скрываем бренд на мобильных */
   }
-}
-
-/* Удобство для печати — убрать фоны/тени */
-@media print {
-  nav.breadcrumbs{
-    background: transparent !important;
-    box-shadow:none !important;
-    border: none !important;
-    color: #000 !important;
-  }
-  nav.breadcrumbs .crumb{ background: transparent !important; color: #000 !important; }
 }

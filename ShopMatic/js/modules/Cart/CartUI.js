@@ -6,41 +6,42 @@ import { GridRenderer } from './ui/GridRenderer.js';
 import { RowSync } from './ui/RowSync.js';
 import { IncludedStates } from './ui/IncludedStates.js';
 import { TotalsAndBadges } from './ui/TotalsAndBadges.js';
+import { CartPresenter } from './ui/CartPresenter.js';
+import { CheckoutController } from './ui/CheckoutController.js';
 
 export class CartUI extends CartBase {
   constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
     super({ storage, productService, notifications, favorites, opts });
 
-	this.storage = storage;
-	this.shopMatic = storage.shopMatic;
+    this.storage = storage;
+    this.shopMatic = storage.shopMatic;
+    this.foxEngine = this.shopMatic.foxEngine;
     this.renderer = renderer;
     this.opts = opts || {};
+    this.eventBus = this.shopMatic.eventBus;
 
     this.dom = new CartDOMRefs(this);
     this.rendererUtils = new GridRenderer(this);
     this.listeners = new GridListeners(this);
     this.rowSync = new RowSync(this);
-    this.included = new IncludedStates(this);
-    this.totals = new TotalsAndBadges(this);
 
+    this.includeStorageKey = (opts && opts.includeStorageKey) || 'cart:included_states';
+    this.included = new IncludedStates(this, { storageKey: this.includeStorageKey, eventBus: this.eventBus });
+
+    this.totals = new TotalsAndBadges(this);
     this.miniCart = new MiniCart({ renderer: this.renderer, notifications: this.notifications, opts: opts.miniCart });
 
+    this.presenter = new CartPresenter(this);
+    this.checkout = new CheckoutController(this);
+
+    // DOM refs
     this.headerCartNum = null;
-	this.headerCartWord = null;
     this.mobileCartNum = null;
     this.cartGrid = null;
     this.cartCountInline = null;
     this.cartTotal = null;
     this.miniCartTotal = null;
-	this._checkoutHandler = null;
-	this._checkoutAttachedTo = null;
-
-	// опционально: экспортируемые методы для тестов/вызовов извне
-	this.bindCheckout = (container) => this._bindCheckout(container);
-	this.unbindCheckout = (container) => this._unbindCheckout(container);
-
-	// сразу привяжем к body (или укажите контейнер, в котором находится кнопка)
-	this._bindCheckout(); 
+    this.cartHeader = null;
 
     this.masterSelect = null;
     this._masterSelectHandler = null;
@@ -49,19 +50,21 @@ export class CartUI extends CartBase {
     this._gridInputHandler = null;
     this._gridListenersAttachedTo = null;
 
-    this._rowsSyncing = new Set();
-    this._changeSourceMap = new Map();
-
-    this.includeStorageKey = (opts && opts.includeStorageKey) || 'cart:included_states';
     this._includedStatesLoaded = false;
 
+    // external API compatibility
     this.setDomRefs = (...a) => this.dom.setDomRefs(...a);
-    this.updateCartUI = (...a) => this._updateCartUI(...a);
-    this.destroy = () => this._destroy();
-	
-	
+    this.updateCartUI = (...a) => this.presenter.updateUI(...a);
+
+    // Domain bypass to avoid CartModule overrides recursion
+    this._domainAdd = (id, qty) => CartBase.prototype.add.call(this, id, qty);
+    this._domainRemove = (id) => CartBase.prototype.remove.call(this, id);
+    this._domainChangeQty = (id, qty, o = {}) => CartBase.prototype.changeQty.call(this, id, qty, o);
   }
 
+  /**
+   * THE ONLY refresh pipeline (called by presenter).
+   */
   async _updateCartUI(targetId = null) {
     const overrideIdKey = targetId ? this._normalizeIdKey(targetId) : null;
     const changedIdsSnapshot = overrideIdKey ? [String(overrideIdKey)] : Array.from(this._pendingChangedIds || []);
@@ -74,6 +77,9 @@ export class CartUI extends CartBase {
     if (!this._includedStatesLoaded) {
       try { this.included.loadIncludedStatesFromLocalStorage(); } catch (e) { this._logError('loadIncludedStates failed', e); }
       this._includedStatesLoaded = true;
+    } else {
+      // keep included projected onto items when needed
+      try { this.included.applyToItems?.(this.cart); } catch {}
     }
 
     const { totalCount, totalSum } = this.totals.calculateTotals();
@@ -81,14 +87,12 @@ export class CartUI extends CartBase {
 
     await this.miniCart.render(this.getCart());
 
-    if (this.rendererUtils?.hasGridRenderer()) {
-      try {
-        if (overrideIdKey) await this.rendererUtils.updateGridSingle(overrideIdKey);
-        else await this.rendererUtils.updateGridPartial(changedIdsSnapshot);
-      } catch (e) {
-        this._logError('grid update failed', e);
-        try { await this.rendererUtils.renderFullGrid(); } catch (er) { this._logError('full render failed', er); }
-      }
+    try {
+      if (overrideIdKey) await this.rendererUtils.updateGridSingle(overrideIdKey);
+      else await this.rendererUtils.updateGridPartial(changedIdsSnapshot);
+    } catch (e) {
+      this._logError('grid update failed', e);
+      try { await this.rendererUtils.renderFullGrid(); } catch (er) { this._logError('full render failed', er); }
     }
 
     this.totals.updateTotalsUI(totalCount, totalSum);
@@ -96,126 +100,70 @@ export class CartUI extends CartBase {
     try { this.rendererUtils.finalSyncRows(changedIdsSnapshot); } catch (e) { this._logError('finalSyncRows failed', e); }
 
     this._scheduleSave();
-    this._emitUpdateEvent();
+
+    try {
+      this.eventBus?.emit?.('cartUpdated', { cart: this.getCart(), totalCount, totalSum });
+      this.eventBus?.emit?.('cart:updated', { cart: this.getCart(), totalCount, totalSum });
+    } catch {}
 
     return { cart: this.getCart(), totalCount, totalSum };
   }
+  
+    _msg(key, vars = {}) {
+    const pool = this.constructor?.UI_MESSAGES || {};
+    const tpl = pool[key] ?? '';
+    return String(tpl).replace(/\{([^}]+)\}/g, (m, k) =>
+      Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m
+    );
+  }
 
-  remove(productId) {
-    try {
-      const res = super.remove(productId);
-      if (res) {
-        try { this.included.saveIncludedStatesToLocalStorage(); } catch (e) { this._logError('saveIncludedStates failed', e); }
-      }
-      return res;
-    } catch (e) {
-      this._logError('remove override failed', e);
-      return false;
-    }
+  /**
+   * Checkout binds are not CartUI responsibility anymore.
+   * Keep compatibility for CartModule constructor.
+   */
+  _bindCheckout(container = document.body) {
+    this.checkout.bind(container);
   }
   
-_bindCheckout(container = document.body) {
-  if (!container) return;
-  if (this._checkoutHandler && this._checkoutAttachedTo === container) return;
-  if (this._checkoutHandler) this._unbindCheckout(this._checkoutAttachedTo);
-
-	window.addEventListener('hashchange', this._handleHashChange.bind(this));
-
-  this._checkoutHandler = (ev) => {
-    const btn = ev.target.closest?.('.btn-checkout');
-    if (!btn || !container.contains(btn)) return;
-
-    ev.preventDefault();
-    ev.stopPropagation();
-
-    try { if (btn.getAttribute && btn.getAttribute('onclick')) btn.removeAttribute('onclick'); } catch {}
-
-    const target = btn.dataset.target || btn.dataset.action || 'checkout';
-
-    const cart = Array.isArray(this.getCart?.()) ? this.getCart() : (Array.isArray(this.cart) ? this.cart : []);
-    const isCartEmpty = cart.length === 0;
-    const hasSelected = this.included?.countSelected ? this.included.countSelected() > 0 : cart.some(item => Number(item?.qty ?? item?.quantity ?? 0) > 0 || item?.included);
-
-    const warn = (msg) => {
-      try {
-        if (this.notifications?.show) { this.notifications.show(msg, { type: 'warn' }); return; }
-        const summary = document.querySelector('.cart-summary') || document.body;
-        if (window.$?.(summary).notify) { window.$(summary).notify(msg, 'warn'); return; }
-      } catch {}
-      try { alert(msg); } catch {}
-    };
-
-    if (isCartEmpty) { warn('Ваша корзина пуста!'); return; }
-    if (!hasSelected) { warn('Не выбран ни один товар для оформления!'); return; }
-
-    if (window.foxEngine?.page?.loadPage) {
-      try { window.foxEngine.page.loadPage(target); } catch { window.location.href = '/checkout'; }
-    } else {
-      try { window.location.href = '/checkout'; } catch {}
-    }
-  };
-    if(this.shopMatic.deviceUtil.isMobile) {
-		if(window.location.hash.includes('cart')) {
-	  const footerMobile = container.querySelector('.menu__content');
-	  console.log(footerMobile);
-	  const newContent = document.createElement('div');
-	  newContent.innerHTML = `
-	  <section class="mobileCheckout" id="mobileCheckoutBlock">
-	  <a href="#page/checkout" class="btn-checkout">
-		  <ul>
-			  <li class="mobileProducts">
-				<span id="mobileProductCount"></span>
-				<span id="mobileProductWord"></span>
-			  </li>
-			  
-			  <li>
-				<b>К оформлению</b>
-			  </li>
-			  
-			  <li class="mobilePrice">
-				<span id="mobileTotalPrice">0</span>
-			  </li>
-		  </ul>
-	  </a>
-	  </section>`;
-	  footerMobile.insertBefore(newContent, footerMobile.firstChild);
+  	_addMobileCheckoutBlock(container = document.body) {
+		if (this.shopMatic.deviceUtil.isMobile) {
+			if (window.location.hash.includes('cart')) {
+				const footerMobile = container.querySelector('.menu__content');
+				if (!document.getElementById('mobileCheckoutBlock')) {
+					const newContent = document.createElement('div');
+					newContent.innerHTML = `
+					<section class="mobileCheckout" id="mobileCheckoutBlock">
+						<a href="#page/checkout" class="btn-checkout">
+							<ul>
+								<li class="mobileProducts">
+									<span id="mobileProductCount"></span>
+									<span id="mobileProductWord"></span>
+								</li>
+								<li>
+									<b>К оформлению</b>
+								</li>
+								<li class="mobilePrice">
+									<span id="mobileTotalPrice">0</span>
+								</li>
+							</ul>
+						</a>
+					</section>`;
+					footerMobile.insertBefore(newContent, footerMobile.firstChild);
+				} else {}
+			}
 		}
-  }
-
-  container.addEventListener('click', this._checkoutHandler, { passive: false });
-  this._checkoutAttachedTo = container;
-}
-
-_handleHashChange() {
-  const mobileCheckoutBlock = document.getElementById('mobileCheckoutBlock');
-  
-  // Проверяем, существует ли элемент
-  if (mobileCheckoutBlock) {
-    if (!window.location.hash.includes('cart')) {
-      mobileCheckoutBlock.style.display = 'none';
-      this._unbindCheckout(this._checkoutAttachedTo);
-    } else {
-      mobileCheckoutBlock.style.display = 'block';
-    }
-  }
-}
-
-
-	_unbindCheckout(container) {
-	  if (!this._checkoutHandler) return;
-	  try {
-		container.removeEventListener('click', this._checkoutHandler);
-		container.getElementById('mobileCheckoutBlock').style.display = 'none';
-	  } catch (e) { /* ignore */ }
-	  this._checkoutHandler = null;
-	  this._checkoutAttachedTo = null;
 	}
 
 
-  _destroy() {
+  _unbindCheckout(container = document.body) {
+    this.checkout.unbind(container);
+  }
+
+  destroy() {
     try { this.listeners.detachGridListeners(); } catch (e) { this._logError('detachGridListeners failed', e); }
-    try { if (this.masterSelect && this._masterSelectHandler) this.masterSelect.removeEventListener('change', this._masterSelectHandler); } catch (e) { this._logError('masterSelect remove failed', e); }
-    try { if (this.miniCart?.destroy) this.miniCart.destroy(); } catch (e) { this._logError('miniCart.destroy failed', e); }
+    try { if (this.masterSelect && this._masterSelectHandler) this.masterSelect.removeEventListener('change', this._masterSelectHandler); } catch {}
+    try { this.checkout.destroy(); } catch {}
+    try { if (this.miniCart?.destroy) this.miniCart.destroy(); } catch {}
     this._destroyBase();
   }
 

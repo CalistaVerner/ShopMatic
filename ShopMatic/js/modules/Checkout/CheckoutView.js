@@ -71,7 +71,9 @@ export class CheckoutView {
   bindEvents(handlers = {}) {
     if (!this.container) return;
     this._handlers = handlers || {};
-    this._attach('.promo-code-apply', 'click', handlers.onApplyPromo);
+    if(!this.foxEngine.deviceUtil.isMobile) {
+		this._attach('.promo-code-apply', 'click', handlers.onApplyPromo);
+	}
     this._attach('.btn-checkout', 'click', handlers.onCheckout);
     this._attach('.btn-return-cart', 'click', handlers.onReturnToCart);
     this._attach(this.container, 'click', handlers.onContainerClick);
@@ -123,8 +125,8 @@ export class CheckoutView {
     el.classList.toggle('buy-now', Boolean(isBuyNow));
     el.classList.toggle('cart', !isBuyNow);
     el.innerHTML = isBuyNow
-      ? `<i class="fa-solid fa-bolt"></i><span>Купить сейчас</span>`
-      : `<i class="fa-solid fa-cart-shopping"></i><span>Ваша корзина</span>`;
+      ? `<i class="fa-solid fa-bolt"></i><span>Моментальная покупка</span>`
+      : `<i class="fa-solid fa-cart-shopping"></i><span>Товары в корзине</span>`;
   }
 
   getPromoInputValue() {
@@ -227,33 +229,28 @@ export class CheckoutView {
     return { totalPrice, totalQty };
   }
 
-  async _createCartItemCard(item) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'checkout-item card mb-3';
+ async _createCartItemCard(item) {
     const pictureUrl = this._parsePictureUrl(item.picture);
     const safeName = item.name || item.fullname || 'Товар';
-    wrapper.innerHTML = `
-      <div class="checkout-item__image">
-        <img src="${pictureUrl}" alt="${this._escapeAttr(safeName)}" class="checkout-item__img"/>
-      </div>
-      <div class="checkout-item__content">
-        <div class="checkout-item__top">
-          <h5 class="checkout-item__title">${this._escapeHtml(item.fullname || safeName)}</h5>
-          <span class="checkout-item__qty">Количество: ${item.qty}</span>
-        </div>
-        <p class="checkout-item__specs">${makeSpecHtmlPreview(item.specs)}</p>
-        <div class="checkout-item__price-row">
-          <span>Цена:</span>
-          <span class="price-submain">${formatPrice(item.price)}</span>
-        </div>
-        <div class="checkout-item__price-row total">
-          <span>Итого:</span>
-          <span class="price-main">${formatPrice(item.price * item.qty)}</span>
-        </div>
-      </div>
-    `;
-    return wrapper;
-  }
+
+    // Рендерим HTML строку через шаблонизатор
+    const cardTpl = await this.foxEngine.templateRenderer.renderTemplate('checkoutCard', {
+        pictureUrl: pictureUrl,
+        fullName: this._escapeHtml(item.fullname || safeName),
+        qty: item.qty,
+        specs: makeSpecHtmlPreview(item.specs),
+        price: formatPrice(item.price),
+        totalPrice: formatPrice(item.price * item.qty)
+    });
+
+    // Превращаем HTML в DOM-ноду
+    const template = document.createElement('template');
+    template.innerHTML = cardTpl.trim(); // trim чтобы убрать лишние переносы
+
+    // Возвращаем первую ноду шаблона
+    return template.content.firstElementChild;
+}
+
 
   /* Helpers */
   _parsePictureUrl(pictureField) {

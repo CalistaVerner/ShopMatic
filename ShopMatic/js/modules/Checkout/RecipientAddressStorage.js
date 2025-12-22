@@ -17,153 +17,113 @@ export class RecipientAddressStorage {
 
     this.storageKey = storageKey;
     this._cache = null;
-    // subscribers: Set of {fn, events?: Set}
     this._subscribers = new Set();
     this._persisting = false;
+    this._isNotified = false;
   }
 
-  /* ======================
-     LOW-LEVEL STORAGE
-  ======================= */
+  _ensureLoaded() {
+    if (this._cache) return;
 
-_ensureLoaded() {
-  if (this._cache) return;
+    try {
+      const raw = localStorage.getItem(this.storageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
 
-  try {
-    const raw = localStorage.getItem(this.storageKey);
-    const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === "object") {
+        if (Array.isArray(parsed) && parsed.every(p => p && typeof p === "object" && 'name' in p)) {
+          this._cache = { version: 2, recipients: parsed, addresses: [], selected: { recipientId: null, addressId: null }, deliveryOptions: {} };
+          this._safeSave();
+          return;
+        }
 
-    if (parsed && typeof parsed === "object") {
-      // handle old formats gracefully: attempt to migrate common shapes
-      if (Array.isArray(parsed) && parsed.every(p => p && typeof p === "object" && 'name' in p)) {
-        this._cache = { version: 2, recipients: parsed, addresses: [], selected: { recipientId: null, addressId: null }, deliveryOptions: {} };
-        this._safeSave();
-        return;
-      }
-
-      // If object has recipients & addresses already
-      if (Array.isArray(parsed.recipients) || Array.isArray(parsed.addresses)) {
-        this._cache = {
-          version: parsed.version || 2,
-          recipients: Array.isArray(parsed.recipients) ? parsed.recipients : [],
-          addresses: Array.isArray(parsed.addresses) ? parsed.addresses : [],
-          selected: parsed.selected && typeof parsed.selected === 'object'
-            ? { recipientId: parsed.selected.recipientId || null, addressId: parsed.selected.addressId || null }
-            : { recipientId: null, addressId: null },
-          deliveryOptions: parsed.deliveryOptions || {} // Ensure deliveryOptions is set
-        };
-        return;
-      }
-    }
-
-    // Otherwise invalid
-    throw new Error("Invalid structure");
-  } catch {
-    // Самовосстановление — чистая структура
-    this._cache = { version: 2, recipients: [], addresses: [], selected: { recipientId: null, addressId: null }, deliveryOptions: {} };
-    this._safeSave();
-  }
-}
-
-
-_safeSave(metaEvent = "save", payload = null) {
-  if (!this._cache) return;
-
-  try {
-    // Check if localStorage is available
-    if (typeof localStorage === 'undefined') {
-      console.warn('localStorage is not available');
-      return;
-    }
-
-    // Avoid re-entrant saving storms
-    if (this._persisting) {
-      // Schedule next tick save to avoid a potential infinite loop
-      setTimeout(() => this._safeSave(metaEvent, payload), 50);
-      return;
-    }
-
-    this._persisting = true;
-
-    // Preprocess the _cache to handle Date objects and other potential issues
-    const processedCache = this._processCacheBeforeSave(this._cache);
-
-    // Validate data before saving
-    const dataToSave = JSON.stringify(processedCache);
-    if (!dataToSave) {
-      throw new Error('Failed to serialize cache data');
-    }
-
-    // Attempt to save to localStorage
-    localStorage.setItem(this.storageKey, dataToSave);
-
-  } catch (e) {
-    console.error("RecipientAddressStorage: failed to save", e);
-
-    // Optionally, you could implement fallback storage, like sessionStorage
-    // sessionStorage.setItem(this.storageKey, JSON.stringify(this._cache));
-  } finally {
-    this._persisting = false;
-    // Always notify after attempting save; pass meta info
-    this._notify(metaEvent, payload);
-  }
-}
-
-/**
- * Preprocess the cache before saving to handle potential issues.
- * For example, converting Date objects to string.
- */
-_processCacheBeforeSave(cache) {
-  // Clone cache to prevent mutation
-  const cacheClone = JSON.parse(JSON.stringify(cache));
-
-  // Handle Date fields: convert them to ISO string
-  const convertDates = (obj) => {
-    for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        if (obj[key] instanceof Date) {
-          obj[key] = obj[key].toISOString();  // Convert Date to ISO string
-        } else if (typeof obj[key] === "object" && obj[key] !== null) {
-          // Recursively handle nested objects
-          convertDates(obj[key]);
+        if (Array.isArray(parsed.recipients) || Array.isArray(parsed.addresses)) {
+          this._cache = {
+            version: parsed.version || 2,
+            recipients: Array.isArray(parsed.recipients) ? parsed.recipients : [],
+            addresses: Array.isArray(parsed.addresses) ? parsed.addresses : [],
+            selected: parsed.selected && typeof parsed.selected === 'object'
+              ? { recipientId: parsed.selected.recipientId || null, addressId: parsed.selected.addressId || null }
+              : { recipientId: null, addressId: null },
+            deliveryOptions: parsed.deliveryOptions || {}
+          };
+          return;
         }
       }
+
+      throw new Error("Invalid structure");
+    } catch {
+      this._cache = { version: 2, recipients: [], addresses: [], selected: { recipientId: null, addressId: null }, deliveryOptions: {} };
+      this._safeSave();
     }
-  };
+  }
 
-  convertDates(cacheClone); // Convert all dates in the cache
+  _safeSave(metaEvent = "save", payload = null) {
+    if (!this._cache) return;
 
-  return cacheClone;
-}
+    try {
+      if (typeof localStorage === 'undefined') {
+        console.warn('localStorage is not available');
+        return;
+      }
 
+      if (this._persisting) {
+        setTimeout(() => this._safeSave(metaEvent, payload), 50);
+        return;
+      }
 
+      this._persisting = true;
 
-  /**
-   * Notify subscribers.
-   * Each subscriber callback receives (stateClone, meta).
-   * For backward compatibility callbacks that accept zero args still work.
-   */
+      const processedCache = this._processCacheBeforeSave(this._cache);
+      const dataToSave = JSON.stringify(processedCache);
+      if (!dataToSave) {
+        throw new Error('Failed to serialize cache data');
+      }
+
+      localStorage.setItem(this.storageKey, dataToSave);
+
+    } catch (e) {
+      console.error("RecipientAddressStorage: failed to save", e);
+    } finally {
+      this._persisting = false;
+      this._notify(metaEvent, payload);
+    }
+  }
+
+  _processCacheBeforeSave(cache) {
+    const cacheClone = JSON.parse(JSON.stringify(cache));
+
+    const convertDates = (obj) => {
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          if (obj[key] instanceof Date) {
+            obj[key] = obj[key].toISOString();
+          } else if (typeof obj[key] === "object" && obj[key] !== null) {
+            convertDates(obj[key]);
+          }
+        }
+      }
+    };
+
+    convertDates(cacheClone);
+
+    return cacheClone;
+  }
+
   _notify(eventType = "change", payload = null) {
+    if (this._isNotified) return;
+    this._isNotified = true;
+
     const snapshot = this._clone(this._cache);
     for (const sub of Array.from(this._subscribers)) {
       try {
-        // If subscriber has event filter, skip non-matching
         if (sub.events && sub.events.size && !sub.events.has(eventType)) continue;
-        // Call with both args (backwards-compatible)
         sub.fn(snapshot, { type: eventType, payload });
-      } catch (e) {
-        // swallow subscriber errors
-        /* eslint-disable no-empty */
-      }
+      } catch (e) {}
     }
+
+    this._isNotified = false;
   }
 
-  /**
-   * Subscribe to all changes or to specific event types.
-   * callback(stateClone, meta)
-   * options = { events: ['added:recipient','selected:address'] }
-   * Returns unsubscribe function.
-   */
   subscribe(callback, options = {}) {
     if (typeof callback !== "function") return () => {};
     const sub = { fn: callback, events: null };
@@ -171,19 +131,13 @@ _processCacheBeforeSave(cache) {
       sub.events = new Set(options.events);
     }
     this._subscribers.add(sub);
-    // return unsubscribe
     return () => this._subscribers.delete(sub);
   }
-
-  /* ======================
-     HELPERS
-  ======================= */
 
   _clone(obj) {
     try {
       return JSON.parse(JSON.stringify(obj));
     } catch {
-      // fallback shallow clone
       return Array.isArray(obj) ? obj.slice() : Object.assign({}, obj);
     }
   }
@@ -198,7 +152,6 @@ _processCacheBeforeSave(cache) {
       name: String(data.name || "").trim(),
       phone: String(data.phone || "").trim(),
       comment: String(data.comment || "").trim(),
-      // extension point for UI flags
       label: data.label || null,
       meta: data.meta || {}
     };
@@ -243,10 +196,6 @@ _processCacheBeforeSave(cache) {
     return target;
   }
 
-  /* ======================
-     RECIPIENT API
-  ======================= */
-
   addRecipient(data) {
     this._ensureLoaded();
     const record = this._normalizeRecipient(data);
@@ -254,15 +203,12 @@ _processCacheBeforeSave(cache) {
       throw new Error("Invalid recipient data");
     }
     this._cache.recipients.push(record);
-    // notify added
     this._safeSave("added:recipient", this._clone(record));
 
-    // Если ещё нет выбранного получателя — выбираем этот автоматически
     try {
       if (!this._cache.selected) this._cache.selected = { recipientId: null, addressId: null };
       if (!this._cache.selected.recipientId) {
         this._cache.selected.recipientId = record.id;
-        // дважды сохраняем: уже сохранен added, теперь selected
         this._safeSave("selected:recipient", this._clone(record));
       }
     } catch (e) {
@@ -279,7 +225,6 @@ _processCacheBeforeSave(cache) {
       const existing = this._find(this._cache.recipients, data.id);
       if (existing) {
         const patch = this._normalizeRecipient(data);
-        // keep id from existing
         patch.id = existing.id;
         this._updateDeep(existing, patch);
         if (!this._validateRecipient(existing)) throw new Error("Invalid recipient after update");
@@ -314,7 +259,6 @@ _processCacheBeforeSave(cache) {
     this._ensureLoaded();
     const existed = !!this._find(this._cache.recipients, id);
     this._cache.recipients = this._cache.recipients.filter((r) => r.id !== id);
-    // clear selection if removed
     if (this._cache.selected && this._cache.selected.recipientId === id) {
       this._cache.selected.recipientId = null;
       this._safeSave("removed:recipient", { id });
@@ -324,11 +268,7 @@ _processCacheBeforeSave(cache) {
     if (existed) this._safeSave("removed:recipient", { id });
   }
 
-  /* ======================
-     ADDRESS API
-  ======================= */
-
- addAddress(data) {
+  addAddress(data) {
     this._ensureLoaded();
     const record = this._normalizeAddress(data);
     if (!this._validateAddress(record)) {
@@ -337,7 +277,6 @@ _processCacheBeforeSave(cache) {
     this._cache.addresses.push(record);
     this._safeSave("added:address", this._clone(record));
 
-    // Если ещё нет выбранного адреса — выбираем этот автоматически
     try {
       if (!this._cache.selected) this._cache.selected = { recipientId: null, addressId: null };
       if (!this._cache.selected.addressId) {
@@ -392,7 +331,6 @@ _processCacheBeforeSave(cache) {
     this._ensureLoaded();
     const existed = !!this._find(this._cache.addresses, id);
     this._cache.addresses = this._cache.addresses.filter((a) => a.id !== id);
-    // clear selection if removed
     if (this._cache.selected && this._cache.selected.addressId === id) {
       this._cache.selected.addressId = null;
       this._safeSave("removed:address", { id });
@@ -402,31 +340,25 @@ _processCacheBeforeSave(cache) {
     if (existed) this._safeSave("removed:address", { id });
   }
 
-  /* ======================
-     SELECTION API
-  ======================= */
+  getSelectedRecipient(selectedId = "") {
+    this._ensureLoaded();
+    const id = this._cache.selected?.recipientId || selectedId;
+    if (!id) return null;
 
-	getSelectedRecipient(selectedId = "") {
-	  this._ensureLoaded(); // Загружаем данные, если они не были загружены
-	  const id = this._cache.selected?.recipientId || selectedId; // Используем выбранный id или переданный
-	  if (!id) return null; // Если нет id, возвращаем null
-
-	  // Проверка существования получателя по id
-	  const rec = this._find(this._cache.recipients, String(id)); // Приводим id к строковому типу
-	  if (!rec) {
-		// Если не нашли — очищаем выбранного получателя
-		this._cache.selected.recipientId = null;
-		this._safeSave("selected:recipient", null);
-		return null;
-	  }
-	  return this._clone(rec); // Возвращаем выбранного получателя
-	}
-
+    const rec = this._find(this._cache.recipients, String(id));
+    if (!rec) {
+      this._cache.selected.recipientId = null;
+      this._safeSave("selected:recipient", null);
+      return null;
+    }
+    return this._clone(rec);
+  }
 
   getSelectedAddress(selectedId = "") {
     this._ensureLoaded();
     const id = this._cache.selected?.addressId || selectedId;
     if (!id) return null;
+
     const addr = this._find(this._cache.addresses, id);
     if (!addr) {
       this._cache.selected.addressId = null;
@@ -436,23 +368,22 @@ _processCacheBeforeSave(cache) {
     return this._clone(addr);
   }
 
-selectRecipient(id) {
-  this._ensureLoaded();
-  if (id === null) {
-    this._cache.selected.recipientId = null;
-    this._safeSave("selected:recipient", null);
-    return null;
+  selectRecipient(id) {
+    this._ensureLoaded();
+    if (id === null) {
+      this._cache.selected.recipientId = null;
+      this._safeSave("selected:recipient", null);
+      return null;
+    }
+    const found = this._find(this._cache.recipients, id);
+    if (!found) {
+      console.warn("RecipientAddressStorage: selectRecipient — id not found", id);
+      return null;
+    }
+    this._cache.selected.recipientId = found.id;
+    this._safeSave("selected:recipient", this._clone(found));
+    return this._clone(found);
   }
-  const found = this._find(this._cache.recipients, id);
-  if (!found) {
-    console.warn("RecipientAddressStorage: selectRecipient — id not found", id);
-    return null;
-  }
-  this._cache.selected.recipientId = found.id;
-  this._safeSave("selected:recipient", this._clone(found)); // Сохраняем выбранного получателя
-  return this._clone(found); // Возвращаем выбранного получателя
-}
-
 
   selectAddress(id) {
     this._ensureLoaded();
@@ -477,10 +408,6 @@ selectRecipient(id) {
     this._cache.selected.addressId = null;
     this._safeSave("selected:cleared", null);
   }
-
-  /* ======================
-     EXTRA CONVENIENCE
-  ======================= */
 
   hasAny() {
     this._ensureLoaded();
@@ -543,9 +470,6 @@ selectRecipient(id) {
     }
   }
 
-  /**
-   * Import JSON. options: { merge: true|false } (merge by id when possible)
-   */
   import(jsonString, options = { merge: false }) {
     if (!jsonString || typeof jsonString !== "string") throw new Error("Invalid import payload");
     let parsed;
@@ -558,7 +482,6 @@ selectRecipient(id) {
     this._ensureLoaded();
 
     if (!options.merge) {
-      // replace entirely, but normalize shape
       const recipients = Array.isArray(parsed.recipients) ? parsed.recipients.map(p => this._normalizeRecipient(p)) : [];
       const addresses = Array.isArray(parsed.addresses) ? parsed.addresses.map(a => this._normalizeAddress(a)) : [];
       this._cache = { version: 2, recipients, addresses, selected: { recipientId: null, addressId: null } };
@@ -566,7 +489,6 @@ selectRecipient(id) {
       return;
     }
 
-    // merge: try to upsert by id or append
     const incomingRecipients = Array.isArray(parsed.recipients) ? parsed.recipients : [];
     const incomingAddresses = Array.isArray(parsed.addresses) ? parsed.addresses : [];
 
@@ -577,7 +499,6 @@ selectRecipient(id) {
       try { this.upsertAddress(a); } catch {}
     }
 
-    // if import had selected keys, adopt them if exist
     if (parsed.selected && typeof parsed.selected === 'object') {
       if (parsed.selected.recipientId && this._find(this._cache.recipients, parsed.selected.recipientId)) {
         this._cache.selected.recipientId = parsed.selected.recipientId;
@@ -591,18 +512,17 @@ selectRecipient(id) {
 
     this._safeSave("import:merge", null);
   }
-  
+
   setDeliveryOptions(options) {
-	  this._ensureLoaded();
-	  this._cache.deliveryOptions = options;
-	  this._safeSave("updated:deliveryOptions", options);
-	}
+    this._ensureLoaded();
+    this._cache.deliveryOptions = options;
+    this._safeSave("updated:deliveryOptions", options);
+  }
 
-	getDeliveryOptions() {
-	  this._ensureLoaded();
-	  return this._cache.deliveryOptions || {};
-	}
-
+  getDeliveryOptions() {
+    this._ensureLoaded();
+    return this._cache.deliveryOptions || {};
+  }
 
   clearAll() {
     this._cache = { version: 2, recipients: [], addresses: [], selected: { recipientId: null, addressId: null } };

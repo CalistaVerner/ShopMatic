@@ -11,10 +11,10 @@ class DeliveryBlockController {
     this.storage.subscribe(this._onStorageChange);
 
     this._isHandlersAttached = false; // флаг, чтобы не добавлять обработчики повторно
-    this._render();
+    //this._render();
   }
 
-  _render() {
+  async _render() {
     if (!this.root) return;
 
     const selectedRecipient = this.storage.getSelectedRecipient();
@@ -23,15 +23,12 @@ class DeliveryBlockController {
 
     // Строим каркас только один раз
     if (!this.root.querySelector("#top-second-section")) {
-      this.root.innerHTML = `
-        <h2 class="cart-title">Условия доставки</h2>
-        <div class="delivery-options" id="deliveryOptions"></div>
-        <div id="top-second-section" data-widget="TopSecondSection"></div>
-        <div class="delivery-options-switch">
-          ${this._renderSwitcher("leaveAtDoor", "Оставить у двери", deliveryOptions.leaveAtDoor)}
-          ${this._renderSwitcher("doNotCall", "Не звонить", deliveryOptions.doNotCall)}
-        </div>
-      `;
+		let data = await this.foxEngine.templateRenderer.renderTemplate('deliveryOptions', 
+		{
+			leaveAtDoor: this._renderSwitcher("leaveAtDoor", "Оставить у двери", deliveryOptions.leaveAtDoor),
+			doNotCall: this._renderSwitcher("doNotCall", "Не звонить", deliveryOptions.doNotCall)
+		});
+      this.root.innerHTML =data;
       this._attachHandlers();
       this._initSwitcheries();
     }
@@ -71,23 +68,28 @@ class DeliveryBlockController {
     }
 
     const details = [
-      address.flat ? `кв. ${escapeHtml(address.flat)}` : "",
-      address.floor ? `${escapeHtml(address.floor)} этаж` : "",
-      address.doorcode ? `домофон ${escapeHtml(address.doorcode)}` : ""
+      address.flat ? `<b>кв.</b> ${escapeHtml(address.flat)}` : "",
+      address.floor ? `${escapeHtml(address.floor)} <b>этаж</b>` : "",
+      address.doorcode ? `<b>домофон</b> ${escapeHtml(address.doorcode)}` : ""
     ].filter(Boolean).join(", ");
 
     return `
-      <div class="delivery-point">
-        <div class="delivery-point-selector">
-          <button class="delivery-point-button js-open-address">
+      <div class="deliveryTypeCard">
+        <div class="deliveryTypeSelector">
+          <button class="js-open-address">
             <div class="button-content">
               <span class="label">Адрес</span>
-              <div class="address-details">
-                <span class="address">${escapeHtml(address.street)}, ${escapeHtml(address.house)}</span>
-                <span class="additional-info">${details}</span>
+              <div class="contentDetails">
+                <span>
+					<b>ул.</b>${escapeHtml(address.street)}, 
+					<b>д.</b>${escapeHtml(address.house)}
+				</span>
+                <span>${details}</span>
               </div>
             </div>
-            <div class="arrow-icon"><i class="fa-solid fa-ellipsis"></i></div>
+            <div class="blockIcon">
+				<i class="fa-solid fa-ellipsis"></i>
+			</div>
           </button>
         </div>
       </div>
@@ -100,17 +102,27 @@ class DeliveryBlockController {
     }
 
     return `
-      <div class="recipient-selector">
-        <div class="recipient-info">
-          <button class="recipient-button js-open-recipient">
+      <div class="deliveryTypeCard">
+        <div class="deliveryTypeSelector">
+          <button class="js-open-recipient">
             <div class="button-content">
               <span class="label">Получатель</span>
-              <div class="recipient-details">
-                <span class="name">${escapeHtml(r.name)}</span>
-                <span class="contact-info">${escapeHtml(r.phone || "")}</span>
+              <div class="contentDetails">
+                <span>
+					<b>Получатель:</b> ${escapeHtml(r.name)}
+				</span>
+                <span>
+					<b>Телефон:</b> ${escapeHtml(r.phone || "")}
+				</span>
+				
+				<span>
+					<b>Комментарий:</b> ${escapeHtml(r.comment || "")}
+				</span>
               </div>
             </div>
-            <div class="arrow-icon"><i class="fa-solid fa-ellipsis"></i></div>
+            <div class="blockIcon">
+				<i class="fa-solid fa-ellipsis"></i>
+			</div>
           </button>
         </div>
       </div>
@@ -120,14 +132,16 @@ class DeliveryBlockController {
   _renderEmptySection(label, placeholder, buttonClass) {
     // buttonClass ожидается "js-open-address" или "js-open-recipient"
     return `
-      <div class="${buttonClass}-selector">
-        <div class="${buttonClass}-info">
-          <button class="${buttonClass}-button ${buttonClass}">
+      <div class="deliveryTypeCard">
+        <div class="deliveryTypeSelector">
+          <button class="${buttonClass}">
             <div class="button-content">
               <span class="label">${label}</span>
-              <div class="${buttonClass}-details empty">${placeholder}</div>
+              <div class="empty">${placeholder}</div>
             </div>
-            <div class="arrow-icon">→</div>
+            <div class="blockIcon">
+				<i class="fa-solid fa-arrow-right-long"></i>
+			</div>
           </button>
         </div>
       </div>

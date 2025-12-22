@@ -6,6 +6,10 @@
  * @author Calista Verner
  * @date [13.11.25]
  */
+/**
+ * Catalog module: отображение и фильтрация списка товаров.
+ * Загружает товары, категории и бренды, управляет фильтрами и рендером карточек.
+ */
 import { deepEqual } from "../utils.js";
 import { FilterController } from './FilterController.js';
 import { CatalogView } from './CatalogView.js';
@@ -34,13 +38,12 @@ export class CatalogController {
     if (!shop) throw new Error('CatalogController requires a shop instance');
 
     this.shop = shop;
-	this.eventBus = shop.eventBus;
+    this.eventBus = shop.eventBus;
     this.opts = {
       rootId, catFilterId, brandFilterId, searchId, sortId, searchBtnId, productsCountId,
       debounceMs
     };
 
-    // DOM refs
     this.root = null;
     this.catFilter = null;
     this.brandFilter = null;
@@ -50,14 +53,14 @@ export class CatalogController {
     this.resetBtn = null;
     this.productsCount = null;
 
-    // helpers
     this.filters = null;
     this.view = null;
 
-    // internal state
     this._productCache = new ProductCache(() => this._getProductService());
     this._lastAppliedState = null;
     this._isInitializing = false;
+
+    this._filterService = new CatalogFilterService();
   }
 
   _msg(key, fallback = '') {
@@ -93,95 +96,111 @@ export class CatalogController {
     }
   }
 
-  async init(_request = {}) {
-    this._cacheDomElements();
-    this._createHelpers();
+	async init() {
+	  this._cacheDomElements();
+	  this._createHelpers();
 
-    const ps = this._getProductService();
-    if (!ps) {
-      console.warn('[CatalogController] productService absent — модуль отключён');
-      return;
-    }
+	  const ps = this._getProductService();
+	  if (!ps) {
+		console.warn('[CatalogController] productService absent — модуль отключён');
+		return;
+	  }
 
-    this._isInitializing = true;
+	  this._isInitializing = true;
 
-    await this.initSelectors();
+	  // Заполняем селекты, но НЕ рендерим каталог
+	  await this.initSelectors('', '', { applyOnComplete: true });
 
-    try {
-      if (typeof ps.loadProductsSimple === 'function') {
-        await ps.loadProductsSimple();
-        this._productCache.clear();
-      }
-    } catch (err) {
-      console.error('CatalogController.init: loadProductsSimple failed', err);
-      this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Не удалось загрузить товары'));
-    } finally {
-      this._isInitializing = false;
-    }
+	  try {
+		if (typeof ps.loadProductsSimple === 'function') {
+		  await ps.loadProductsSimple();
+		  this._productCache.clear();
+		}
+	  } catch (err) {
+		console.error('CatalogController.init: loadProductsSimple failed', err);
+		this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Не удалось загрузить товары'));
+	  } finally {
+		this._isInitializing = false;
+	  }
 
-    this._bindFilterEvents();
-  }
+	  this._bindFilterEvents();
+	}
 
-  async initSelectors(brand = '', category = '') {
+
+  async initSelectors(brand = '', category = '', options = {}) {
     const ps = this._getProductService();
     if (!ps) return;
 
-    await Promise.all([
-      this.catFilter ? SelectPopulator.populate(this.catFilter, ps, {
-        fillMethod: 'fillCategories',
-        fetchMethod: 'fetchCategories',
-        getterSuffix: 'Categories',
-        selectedValue: category,
-        msgFn: this._msg.bind(this)
-      }) : Promise.resolve(),
+    const { applyOnComplete = true } = options;
 
-      this.brandFilter ? SelectPopulator.populate(this.brandFilter, ps, {
-        fillMethod: 'fillBrands',
-        fetchMethod: 'fetchBrands',
-        getterSuffix: 'Brands',
-        selectedValue: brand,
-        msgFn: this._msg.bind(this)
-      }) : Promise.resolve()
+    await Promise.all([
+      this.catFilter
+        ? SelectPopulator.populate(this.catFilter, ps, {
+            fillMethod: 'fillCategories',
+            fetchMethod: 'fetchCategories',
+            getterSuffix: 'Categories',
+            selectedValue: category,
+            msgFn: this._msg.bind(this)
+          })
+        : Promise.resolve(),
+
+      this.brandFilter
+        ? SelectPopulator.populate(this.brandFilter, ps, {
+            fillMethod: 'fillBrands',
+            fetchMethod: 'fetchBrands',
+            getterSuffix: 'Brands',
+            selectedValue: brand,
+            msgFn: this._msg.bind(this)
+          })
+        : Promise.resolve()
     ]);
 
-    await this.applyFilters();
-  }
-
-  async loadCatalog({ request = null } = {}) {
-    const ps = this._getProductService();
-    //if (!ps) return [];
-
-    const selectedCategory = request?.category ?? '';
-    const selectedBrand    = request?.brand ?? '';
-    const searchValue      = request?.search ?? '';
-    const sortValue        = request?.sort ?? '';
-
-    this._setLocationHash('#page/catalog');
-
-    await this.initSelectors(selectedBrand, selectedCategory);
-
-    // проставляем значения в DOM и в состояние фильтров
-    this._applyRequestToControls({
-      category: selectedCategory,
-      brand: selectedBrand,
-      search: searchValue,
-      sort: sortValue
-    });
-
-    if (this.filters) {
-      this.filters.setState({
-        category: selectedCategory,
-        brand: selectedBrand,
-        search: searchValue,
-        sort: sortValue
-      }, { silent: true });
+    if (applyOnComplete) {
+      await this.applyFilters();
     }
-
-    await this.applyFilters();
-
-    const list = ps.getProducts?.();
-    //return Array.isArray(list) ? [...list] : [];
   }
+
+	async loadCatalog({ request = null } = {}) {
+	  const ps = this._getProductService();
+	  if (!ps) return;
+
+	  const selectedCategory = request?.category ?? '';
+	  const selectedBrand    = request?.brand ?? '';
+	  const searchValue      = request?.search ?? '';
+	  const sortValue        = request?.sort ?? '';
+
+	  this._setLocationHash('#page/catalog');
+
+	  // 1) если селекты ещё не готовы — инициализируем, но без рендера
+	  if (!this._selectorsInitialized) {
+		await this.initSelectors(selectedBrand, selectedCategory, { applyOnComplete: true });
+	  }
+
+	  // 2) прокидываем значения в DOM
+	  this._applyRequestToControls({
+		category: selectedCategory,
+		brand: selectedBrand,
+		search: searchValue,
+		sort: sortValue
+	  });
+
+	  // 3) синхронизируем FilterController (для UI/кнопок и т.п.)
+	  if (this.filters) {
+		this.filters.setState(
+		  {
+			category: selectedCategory,
+			brand: selectedBrand,
+			search: searchValue,
+			sort: sortValue
+		  },
+		  { silent: true } // без повторного applyFilters
+		);
+	  }
+
+	  // 4) и ТОЛЬКО теперь строим список по фильтрам
+	  await this.applyFilters();
+	}
+
 
   destroy() {
     try {
@@ -241,7 +260,8 @@ export class CatalogController {
   _bindFilterEvents() {
     if (!this.filters) return;
     this.filters.bind(() => {
-	  this.eventBus.emit('filtersChanged', this.filters.getState());
+      const state = this.filters.getState();
+      this.eventBus?.emit('filtersChanged', state);
       this.applyFilters();
     });
   }
@@ -274,72 +294,70 @@ export class CatalogController {
     }
   }
 
-  async applyFilters() {
-    if (!this.view) return;
-
-    if (typeof this.view.showLoading === 'function') this.view.showLoading();
-
-    try {
-      await this._populateCacheIfNeeded();
-
-      const originalList = this._productCache.getAll() || [];
-      const list = Array.isArray(originalList) ? originalList : [];
-
-      const state = {
-        search: (this.search?.value || '').trim(),
-        category: this.catFilter?.value || '',
-        brand: this.brandFilter?.value || '',
-        sort: this.sort?.value || ''
-      };
-
-      if (this._lastAppliedState && deepEqual(this._lastAppliedState, state)) {
-        if (typeof this.view.hideLoading === 'function') this.view.hideLoading();
-        return;
-      }
-
-      const filtered = FilterSorter.filterAndSort(list, state);
-
-      // SAFE mapping: build map only for items with valid id (not null/undefined)
-      const originalMap = new Map();
-      for (const p of list) {
-        if (p && p.id !== undefined && p.id !== null) {
-          originalMap.set(String(p.id), p);
-        }
-      }
-
-      const finalList = filtered.map(f => {
-        if (f && f.id !== undefined && f.id !== null) {
-          const orig = originalMap.get(String(f.id));
-          return orig !== undefined ? orig : f;
-        }
-        // if item has no id, return the filtered item itself (avoid mapping to a shared 'undefined' key)
-        return f;
-      });
-
-      if (!finalList.length) {
-        const noMsg = this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
-        const hint = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
-        if (typeof this.view.renderEmpty === 'function') {
-          await this.view.renderEmpty({ message: noMsg, hint });
-        } else {
-          await this.view.render([]);
-        }
-      } else {
-        await this.view.render(finalList);
-      }
-
-      this._lastAppliedState = state;
-    } catch (err) {
-      console.error('CatalogController.applyFilters failed', err);
-      this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Ошибка при обработке каталога'));
-    } finally {
-      if (typeof this.view.hideLoading === 'function') this.view.hideLoading();
+  _getCurrentFilterState() {
+    if (this.filters && typeof this.filters.getState === 'function') {
+      return this.filters.getState();
     }
+
+    // fallback на прямое чтение DOM, если вдруг FilterController недоступен
+    return {
+      search: (this.search?.value || '').trim(),
+      category: this.catFilter?.value || '',
+      brand: this.brandFilter?.value || '',
+      sort: this.sort?.value || ''
+    };
   }
+
+  _shouldSkipApplyFilters(state) {
+    if (!this._lastAppliedState) return false;
+    return deepEqual(this._lastAppliedState, state);
+  }
+
+	async applyFilters() {
+	  if (!this.view) return;
+
+	  this.view.showLoading?.();
+
+	  try {
+		await this._populateCacheIfNeeded();
+
+		const baseList = this._productCache.getAll() || [];
+		const list = Array.isArray(baseList) ? baseList : [];
+
+		const state = this._getCurrentFilterState();
+
+		if (this._lastAppliedState && deepEqual(this._lastAppliedState, state)) {
+		  this.view.hideLoading?.();
+		  return;
+		}
+
+		const finalList = this._filterService.apply(list, state);
+
+		if (!finalList.length) {
+		  const message = this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
+		  const hint = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
+		  if (typeof this.view.renderEmpty === 'function') {
+			await this.view.renderEmpty({ message, hint, state });
+		  } else {
+			await this.view.render([]);
+		  }
+		} else {
+		  await this.view.render(finalList);
+		}
+
+		this._lastAppliedState = state;
+	  } catch (err) {
+		console.error('CatalogController.applyFilters failed', err);
+		this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Ошибка при обработке каталога'));
+	  } finally {
+		this.view.hideLoading?.();
+	  }
+	}
+
 }
 
 /* ======================
-   Вспомогательные классы / функции
+   Вспомогательные классы
    ====================== */
 
 class ProductCache {
@@ -365,8 +383,11 @@ class ProductCache {
   }
 }
 
-const SelectPopulator = {
-  async populate(selectEl, ps, {
+/**
+ * Класс для заполнения select'ов категориями/брендами.
+ */
+class SelectPopulator {
+  static async populate(selectEl, ps, {
     fillMethod, fetchMethod, getterSuffix, selectedValue = '', msgFn = () => ''
   } = {}) {
     if (!selectEl || !ps) return;
@@ -412,40 +433,53 @@ const SelectPopulator = {
       console.warn('SelectPopulator.populate failed', err);
     }
   }
-};
+}
 
-const FilterSorter = {
-  filterAndSort(list, { search = '', category = '', brand = '', sort = '' } = {}) {
+/**
+ * Сервис фильтрации и сортировки каталога.
+ * Чистая логика -> легко тестировать отдельно.
+ */
+class CatalogFilterService {
+  apply(list, { search = '', category = '', brand = '', sort = '' } = {}) {
     if (!Array.isArray(list)) return [];
 
     const searchTerm = String(search || '').trim().toLowerCase();
     const categoryVal = String(category || '');
-    const brandVal = String((brand || '')).toLowerCase();
+    const brandVal = String(brand || '').toLowerCase();
     const sortOrder = String(sort || '');
 
-    let filtered = list.filter(p => {
-      if (!p) return false;
+    let filtered = list.filter(p => this._passesAllFilters(p, { searchTerm, categoryVal, brandVal }));
 
-      if (searchTerm) {
-        const target = String(p.fullname ?? p.title ?? p.name ?? '').toLowerCase();
-        if (!target.includes(searchTerm)) return false;
-      }
+    if (!sortOrder || filtered.length <= 1) {
+      return filtered;
+    }
 
-      if (categoryVal) {
-        if (String(p.category ?? '') !== categoryVal) return false;
-      }
+    return this._sort(filtered, sortOrder);
+  }
 
-      if (brandVal) {
-        const pb = String(p.brand ?? p.brandName ?? '').toLowerCase();
-        if (pb !== brandVal) return false;
-      }
+  _passesAllFilters(p, { searchTerm, categoryVal, brandVal }) {
+    if (!p) return false;
 
-      return true;
-    });
+    if (searchTerm) {
+      const target = String(p.fullname ?? p.title ?? p.name ?? '').toLowerCase();
+      if (!target.includes(searchTerm)) return false;
+    }
 
-    if (!sortOrder || filtered.length <= 1) return filtered;
+    if (categoryVal) {
+      if (String(p.category ?? '') !== categoryVal) return false;
+    }
 
-    const arr = Array.from(filtered);
+    if (brandVal) {
+      const pb = String(p.brand ?? p.brandName ?? '').toLowerCase();
+      if (pb !== brandVal) return false;
+    }
+
+    return true;
+  }
+
+  _sort(list, sortOrder) {
+    const arr = Array.from(list);
+
     switch (sortOrder) {
       case 'price_asc':
         arr.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
@@ -454,10 +488,16 @@ const FilterSorter = {
         arr.sort((a, b) => (Number(b.price) || 0) - (Number(a.price) || 0));
         break;
       case 'brand_asc':
-        arr.sort((a, b) => String(a.brandName ?? a.brand ?? '').localeCompare(String(b.brandName ?? b.brand ?? ''), undefined, { sensitivity: 'base' }));
+        arr.sort((a, b) =>
+          String(a.brandName ?? a.brand ?? '')
+            .localeCompare(String(b.brandName ?? b.brand ?? ''), undefined, { sensitivity: 'base' })
+        );
         break;
       case 'brand_desc':
-        arr.sort((a, b) => String(b.brandName ?? b.brand ?? '').localeCompare(String(a.brandName ?? a.brand ?? ''), undefined, { sensitivity: 'base' }));
+        arr.sort((a, b) =>
+          String(b.brandName ?? b.brand ?? '')
+            .localeCompare(String(a.brandName ?? a.brand ?? ''), undefined, { sensitivity: 'base' })
+        );
         break;
       default:
         break;
@@ -465,6 +505,6 @@ const FilterSorter = {
 
     return arr;
   }
-};
+}
 
 export { CatalogController as Catalog };

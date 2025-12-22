@@ -1,10 +1,8 @@
-// Cart/CartModule.js
-
 import { CartUI } from './CartUI.js';
 
 /**
- * CartModule — публичный фасад для остального кода.
- * Снаружи API остаётся прежним, внутри — разделено по слоям.
+ * CartModule
+ * @author Calista Verner
  */
 export class CartModule extends CartUI {
   static UI_MESSAGES = Object.freeze({
@@ -30,12 +28,19 @@ export class CartModule extends CartUI {
 
   constructor({ storage, productService, renderer, notifications, favorites = null, opts = {} }) {
     super({ storage, productService, renderer, notifications, favorites, opts });
+    this._bindCheckout();
+    this.loadFromStorage();
   }
 
-  /**
-   * Переопределяем add/remove/changeQty чтобы сразу дергать updateCartUI
-   * (поведение как у старой версии CartModule).
-   */
+  _bus() {
+    return this.storage?.shopMatic?.eventBus || null;
+  }
+
+  _emitCartChanged(payload) {
+    const bus = this._bus();
+    try { bus?.emit?.('cart:changed', payload); } catch {}
+  }
+
   add(productId, qty = 1) {
     const ok = super.add(productId, qty);
     if (!ok) return false;
@@ -43,18 +48,14 @@ export class CartModule extends CartUI {
     const id = this._normalizeId(productId);
     const prod = this._resolveProduct(id);
 
-    // уведомление о добавлении
     try {
-      const title =
-        prod && (prod.fullname || prod.title)
-          ? prod.fullname || prod.title
-          : id;
+      const title = prod && (prod.fullname || prod.title) ? (prod.fullname || prod.title) : id;
       try {
         this.notifications?.show?.(
           this._msg('ADDED_TO_CART_HTML', { title, qty }),
           { type: 'success', allowHtml: true }
         );
-      } catch (_) {
+      } catch {
         this.notifications?.show?.(
           this._msg('ADDED_TO_CART_PLAIN', { title, qty }),
           { type: 'success' }
@@ -64,33 +65,72 @@ export class CartModule extends CartUI {
       this._logError('notifications.show failed on add', e);
     }
 
-    return this.updateCartUI();
+    const uiRes = this.updateCartUI(id);
+    this._emitCartChanged({ id, action: 'add' });
+    return uiRes;
   }
 
   remove(productId) {
     const ok = super.remove(productId);
     if (!ok) return false;
-    return this.updateCartUI(productId);
+
+    const id = this._normalizeId(productId);
+    const uiRes = this.updateCartUI(id);
+    this._emitCartChanged({ id, action: 'remove' });
+    return uiRes;
   }
 
   changeQty(productId, newQty, opts = {}) {
     const ok = super.changeQty(productId, newQty, opts);
     if (!ok) return false;
-    return this.updateCartUI(productId);
+
+    const id = this._normalizeId(productId);
+    const uiRes = this.updateCartUI(id);
+    this._emitCartChanged({ id, action: 'qty', qty: newQty });
+    return uiRes;
   }
 
   async loadFromStorage() {
     await super.loadFromStorage();
-    return this.updateCartUI();
+    const uiRes = this.updateCartUI();
+
+    // If we can get ids from storage/cart list — emit ids.
+    // Otherwise emit global hint (Card will fallback to selector query per id only when needed).
+    try {
+      const arr = this.getCartArray?.() || this.storage?.loadCart?.() || [];
+      const ids = Array.isArray(arr) ? arr.map((x) => String(x?.id ?? x?.name ?? x?.productId ?? '').trim()).filter(Boolean) : [];
+      if (ids.length) this._emitCartChanged({ ids, action: 'load' });
+      else this._emitCartChanged({ action: 'load' });
+    } catch {
+      this._emitCartChanged({ action: 'load' });
+    }
+
+    return uiRes;
   }
 
   clear() {
+    // try to snapshot ids before clear for point refresh
+    let ids = [];
+    try {
+      const arr = this.getCartArray?.() || [];
+      if (Array.isArray(arr)) {
+        ids = arr.map((x) => String(x?.id ?? x?.name ?? x?.productId ?? '').trim()).filter(Boolean);
+      }
+    } catch {}
+
     super.clear();
-    return this.updateCartUI();
+    const uiRes = this.updateCartUI();
+
+    if (ids.length) this._emitCartChanged({ ids, action: 'clear' });
+    else this._emitCartChanged({ action: 'clear' });
+
+    return uiRes;
   }
 
   _setCartForTest(cartArray) {
     super._setCartForTest(cartArray);
-    return this.updateCartUI();
+    const uiRes = this.updateCartUI();
+    this._emitCartChanged({ action: 'test' });
+    return uiRes;
   }
 }

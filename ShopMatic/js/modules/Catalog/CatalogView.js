@@ -1,26 +1,38 @@
 /**
- * CatalogView — чистое представление каталога:
- *  • рендер списка товаров
- *  • пустое состояние
- *  • синхронизация избранного
- *  • оптимизированное обновление DOM без пересоздания обработчиков
+ * @author Calista Verner
+ *
+ * CatalogView — catalog view:
+ *  - renders product list
+ *  - renders empty state
+ *  - reorders DOM when possible
+ *  - updates a single card by product name/id
+ *
+ * Contract:
+ *  - shop.card.renderSingleCard(item, type) MUST return a Node (Element)
  */
 export class CatalogView {
   constructor({ root, productsCountEl, shop, msg }) {
     this.root = root || null;
     this.productsCountEl = productsCountEl || null;
     this.shop = shop;
-    this._msg = typeof msg === 'function' ? msg : (k, f = '') => f || k;
-  }
+    this.card = shop?.card || null;
 
-  // --- public ----------------------------------------------------------------
+    this._msg =
+      typeof msg === 'function'
+        ? msg
+        : (k, fallback = '') => fallback || k;
+
+    this._cardById = new Map();
+  }
 
   async render(list = []) {
     const arr = Array.isArray(list) ? list : [];
+
     if (!this.root) return;
 
-    // Обновляем количество товаров
-    if (this.productsCountEl) this.productsCountEl.textContent = String(arr.length);
+    if (this.productsCountEl) {
+      this.productsCountEl.textContent = String(arr.length);
+    }
 
     if (arr.length === 0) {
       this.renderNoResults();
@@ -29,158 +41,153 @@ export class CatalogView {
 
     this.clearNoResults();
 
-    // Переупорядочим DOM, если карточки уже присутствуют, иначе полный рендер
-    if (this._canReorder(arr)) {
-      this._reorder(arr);
-      this._syncAndApplyFavorites(arr);
-    } else {
-      await this._fullRender(arr);
-    }
+    if (this._canReorder(arr)) this._reorder(arr);
+    else await this._fullRender(arr);
   }
-
-  // --- Полный рендер -----------------------------------------------------------
 
   async _fullRender(arr) {
     try {
-      await this.shop.renderer._renderCartVertical(arr, this.root);
+      await this.shop.card.renderCardList(arr, this.root, 'VERTICAL');
+      this._rebuildCardIndex();
     } catch (e) {
-      console.error('[CatalogView] renderer._renderCartVertical failed', e);
-      this.root.innerHTML = '';
-      return;
+      // eslint-disable-next-line no-console
+      console.error('[CatalogView] render failed', e);
+      if (this.root) this.root.innerHTML = '';
+      this._cardById.clear();
     }
-
-    this._syncAndApplyFavorites(arr);
   }
-
-  // --- Синхронизация и применение избранного ----------------------------------
-
-  _syncAndApplyFavorites(arr) {
-    // Сначала синхронизируем контролы карточек
-    try {
-      this.shop._syncAllCardsControls?.();
-    } catch (e) {
-      console.warn('[CatalogView] _syncAllCardsControls failed', e);
-    }
-
-    // Применяем избранное с использованием renderer или fallback
-    requestAnimationFrame(() => this._applyFavorites(arr));
-  }
-
-  // --- Проверка возможности переупорядочивания карточек ----------------------
-
-  _canReorder(arr) {
-    if (!this.root) return false;
-    for (const p of arr) {
-      if (!p || (p.id === undefined || p.id === null)) return false;
-      if (!this.root.querySelector(`[data-product-id="${p.id}"]`)) return false;
-    }
-    return true;
-  }
-
-  // --- Переупорядочивание карточек в DOM ------------------------------------
-
-  _reorder(arr) {
-    const frag = document.createDocumentFragment();
-    const kept = new Set();
-
-    for (const p of arr) {
-      const node = this.root.querySelector(`[data-product-id="${p.id}"]`);
-      if (node) {
-        frag.appendChild(node);
-        kept.add(String(p.id));
-      }
-    }
-
-    // Удаляем карточки, которые больше не присутствуют в списке
-    this.root.querySelectorAll('[data-product-id]').forEach(card => {
-      const id = card.getAttribute('data-product-id');
-      if (!kept.has(id)) card.remove();
-    });
-
-    // Заменяем контент атомарно
-    this.root.innerHTML = '';
-    this.root.appendChild(frag);
-  }
-
-  // --- Применение избранного ----------------------------------------------
 
   /**
-   * Универсальный аплай избранного с использованием renderer или fallback.
-   * Обновляет класс кнопки (is-favorite) и aria-pressed атрибут.
+   * Update a single card by product.name (or id).
+   * @param {string} name
+   * @param {object|null} newProduct
    */
-  _applyFavorites(arr) {
-    if (!this.root || !this.shop?.favorites) return;
+  async updateCardByName(name, newProduct = null) {
+    if (!this.root) return;
+    const id = String(name ?? '').trim();
+    if (!id) return;
 
-    const useRendererMethod = typeof this.shop.renderer?.updateProductCardFavState === 'function';
+    if (!this._cardById.size) this._rebuildCardIndex();
 
-    arr.forEach(product => {
-      const id = product.name;
-      if (!id) return;
+    const oldCard = this._cardById.get(id);
+    if (!oldCard) return;
 
-      const isFav = this.shop.favorites.isFavorite(id);
-      // Используем renderer для применения избранного
-      if (useRendererMethod) {
-        try {
-          this.shop.renderer.updateProductCardFavState(this.root, id, isFav);
-        } catch (e) {
-          console.warn('[CatalogView] renderer.updateProductCardFavState threw', id, e);
-        }
+    let product = newProduct;
+    if (!product) {
+      const ctx = this.shop?.ctx || this.shop;
+      product =
+        ctx?.getProductSync?.(id) ||
+        this.shop?.productService?.findById?.(id) ||
+        null;
+    }
+    if (!product) return;
+
+    try {
+      const produced = await this.shop.card.renderSingleCard(product, 'VERTICAL');
+
+      // Support both Node and string (defensive), but prefer Node.
+      let newCard = null;
+
+      if (produced instanceof Element) {
+        newCard = produced;
+      } else if (produced && typeof produced === 'object' && produced.nodeType === 1) {
+        newCard = produced;
+      } else if (typeof produced === 'string') {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = produced;
+        newCard = tmp.querySelector('[data-product-id]') || tmp.firstElementChild;
       }
 
-      // Fallback: изменяем состояние на карточке
-      const card = this.root.querySelector(`[data-product-id="${id}"]`);
-      if (!card) return;
-
-      card.dataset.isFav = isFav ? '1' : '0';
-
-      const favSelectors = [
-        '[data-fav-btn]',
-        '.fav-btn',
-        '.product-fav',
-        '.favorite-button',
-        '[aria-pressed][data-action="fav"]'
-      ];
-      const favBtn = favSelectors.map(s => card.querySelector(s)).find(btn => btn);
-      if (favBtn) {
-        favBtn.classList.toggle('is-favorite', isFav);
-        favBtn.classList.toggle('active', isFav);
-        favBtn.setAttribute('aria-pressed', isFav ? 'true' : 'false');
-        favBtn.dataset.fav = isFav ? '1' : '0';
-      } else {
-        card.classList.toggle('is-favorite', isFav);
+      if (!newCard) {
+        // eslint-disable-next-line no-console
+        console.warn('[CatalogView] updateCardByName: renderer did not produce a card node');
+        return;
       }
-    });
+
+      oldCard.replaceWith(newCard);
+
+      const newId = newCard.getAttribute?.('data-product-id') || id;
+      this._cardById.set(String(newId), newCard);
+
+      // Keep index consistent in case template uses different id attrs
+      this._rebuildCardIndex();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[CatalogView] updateCardByName failed', e);
+    }
   }
 
-  // --- Пустое состояние ------------------------------------------------------
+  _canReorder(arr) {
+    if (!this.root || !arr.length) return false;
+    if (!this._cardById.size) this._rebuildCardIndex();
+    return arr.every((p) => p?.name != null && this._cardById.has(String(p.name)));
+  }
+
+  _reorder(arr) {
+    if (!this.root) return;
+
+    const frag = document.createDocumentFragment();
+    for (const p of arr) {
+      const node = this._cardById.get(String(p.name));
+      if (node) frag.appendChild(node);
+    }
+
+    this.root.innerHTML = '';
+    this.root.appendChild(frag);
+
+    this._rebuildCardIndex();
+  }
 
   renderNoResults(message = null) {
     if (!this.root) return;
 
+    this._cardById.clear();
     if (this.productsCountEl) this.productsCountEl.textContent = '0';
-
-    const text = message || this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
-    const hint = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
 
     const wrap = document.createElement('div');
     wrap.className = 'catalog-empty';
-    wrap.innerHTML = `
-      <div class="catalog-empty__icon" style="opacity:.6">
-        <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="currentColor" d="M3 6h18v2H3zm0 5h12v2H3zm0 5h6v2H3z"/>
-        </svg>
-      </div>
-      <p class="catalog-empty__text">${text}</p>
-      <div class="catalog-empty__hint">${hint}</div>
+
+    const icon = document.createElement('div');
+    icon.className = 'catalog-empty__icon';
+    icon.style.opacity = '.6';
+    icon.innerHTML = `
+      <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M3 6h18v2H3zm0 5h12v2H3zm0 5h6v2H3z"/>
+      </svg>
     `;
+
+    const textEl = document.createElement('p');
+    textEl.className = 'catalog-empty__text';
+    textEl.textContent =
+      message ||
+      this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
+
+    const hintEl = document.createElement('div');
+    hintEl.className = 'catalog-empty__hint';
+    hintEl.textContent = this._msg(
+      'CATALOG_NO_RESULTS_HINT',
+      'Попробуйте изменить фильтры или сбросить поиск.'
+    );
+
+    wrap.append(icon, textEl, hintEl);
 
     this.root.innerHTML = '';
     this.root.appendChild(wrap);
 
-    try { this.shop._syncAllCardsControls?.(); } catch {}
+    try { this.shop?._syncAllCardsControls?.(); } catch {}
   }
 
   clearNoResults() {
-    this.root?.querySelector('.catalog-empty')?.remove();
+    this.root?.querySelector?.('.catalog-empty')?.remove?.();
+  }
+
+  _rebuildCardIndex() {
+    this._cardById.clear();
+    if (!this.root) return;
+
+    this.root.querySelectorAll('[data-product-id]').forEach((card) => {
+      const id = card.getAttribute('data-product-id');
+      if (id != null) this._cardById.set(String(id), card);
+    });
   }
 }

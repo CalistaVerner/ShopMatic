@@ -5,191 +5,288 @@
    Version: 1.0.0
    Date: 2025-10-24
    ============================================================================ */
-    :root{
-      --bg:#f6f7fb;
-      --card-bg:#fff;
-      --muted:#6b7280;
-      --text:#111827;
-      --accent:#0ea5a4;
-      --danger:#ef4444;
-      --radius:12px;
-      --gap:16px;
-      --shadow: 0 8px 24px rgba(16,24,40,0.06);
+:root {
+    --bg: #f6f7fb;
+    --card-bg: #fff;
+    --muted: #6b7280;
+    --text: #111827;
+    --accent: #0ea5a4;
+    --danger: #ef4444;
+    --radius: 12px;
+    --gap: 16px;
+    --shadow: 0 8px 24px rgba(16,24,40,0.06);
+}
+
+.wish-card {
+    will-change: transform, opacity, filter;
+    transition: box-shadow 220ms ease, transform 220ms ease;
+    transform-origin: center center;
+    backface-visibility: hidden;
+}
+
+/* small elevation on hover to feel 'cardy' */
+/* fallback CSS removal anim */
+.wish-card--remove-css {
+    transition: opacity 320ms cubic-bezier(.2,.9,.2,1), transform 420ms cubic-bezier(.2,.9,.2,1);
+    opacity: 0 !important;
+    transform: translateY(-24px) translateX(12px) scale(0.9) rotate(-2deg) !important;
+    filter: blur(6px);
+}
+
+/* small pulse for favorite-count */
+@keyframes fav-count-pulse {
+    0% {
+        transform: scale(1);
     }
 
-	 .wish-card {
-		will-change: transform, opacity, filter;
-		transition: box-shadow 220ms ease, transform 220ms ease;
-		transform-origin: center center;
-		backface-visibility: hidden;
-	  }
-
-	  /* small elevation on hover to feel 'cardy' */
-
-	  /* fallback CSS removal anim */
-	  .wish-card--remove-css {
-		transition: opacity 320ms cubic-bezier(.2,.9,.2,1), transform 420ms cubic-bezier(.2,.9,.2,1);
-		opacity: 0 !important;
-		transform: translateY(-24px) translateX(12px) scale(0.9) rotate(-2deg) !important;
-		filter: blur(6px);
-	  }
-
-	  /* small pulse for favorite-count */
-	  @keyframes fav-count-pulse {
-		0% { transform: scale(1); }
-		40% { transform: scale(1.12); }
-		100% { transform: scale(1); }
-	  }
-
-    .page {
-      max-width:1200px;
-      margin:32px auto;
-      /* padding:0 20px; */
+    40% {
+        transform: scale(1.12);
     }
 
+    100% {
+        transform: scale(1);
+    }
+}
+
+.page {
+    max-width: 1200px;
+    margin: 5px auto;
+    /* padding:0 20px; */
+}
+
+header.page__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+header.page__head h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+header.page__head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* top controls */
+.controls {
+    display: block;
+    gap: 8px;
+    align-items: center;
+}
+
+.controls > .wishListBtn {
+    border: 1px solid;
+    background: burlywood;
+}
+
+.controls > .wishListBtn:hover {
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 0;
+    background: #111827;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn--ghost {
+    background: transparent;
+    border: 1px solid rgba(0,0,0,0.06);
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* card */
+#wishlist-grid .wish-card {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+
+#wishlist-grid .wish-card:hover {
+}
+
+.wish-media {
+    position: relative;
+    padding: 16px;
+    background: linear-gradient(180deg,#fbfdfe 0%, #fff 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 187px;
+}
+
+.wish-media img {
+    max-width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+/* small fav icon overlay in corner */
+.wish-fav-corner {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 5;
+}
+
+.wish-fav {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.9);
+    border: 1px solid rgba(0,0,0,0.04);
+    cursor: pointer;
+    transition: transform .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.wish-fav i {
+    color: var(--muted);
+    font-size: 16px;
+    transition: transform .28s cubic-bezier(.2,.9,.3,1), color .16s ease;
+}
+
+.wish-fav:hover {
+    transform: scale(1.05);
+    background: #fff;
+}
+
+.wish-fav.is-fav {
+    background: linear-gradient(90deg, rgba(239,68,68,0.08), rgba(253,224,71,0.03));
+    box-shadow: 0 6px 18px rgba(239,68,68,0.12);
+}
+
+.wish-fav.is-fav i {
+    color: var(--danger);
+    transform: scale(1.15) rotate(-6deg);
+}
+
+/* content */
+.wish-body {
+    padding: 12px 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1 1 auto;
+}
+
+.wish-title {
+    font-weight: 700;
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wishListTitle {
+    list-style: none;
+    padding: 0;
+    width: 100%;
+}
+
+.wishListTitle > .controlsWrapper {
+	float: inline-end;
+}
+
+.wishListTitle li {
+    display: inline-flex;
+}
+
+.wish-desc {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.2;
+    height: 2.4em;
+    overflow: hidden;
+}
+
+.wish-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.wish-price {
+    font-weight: 800;
+    font-size: 16px;
+    color: var(--text);
+}
+
+.wish-old {
+    color: var(--muted);
+    text-decoration: line-through;
+    font-size: 13px;
+}
+
+.wish-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.wish-actions .btn {
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+/* empty state */
+.empty {
+    text-align: center;
+    padding: 30px 20px;
+    background: linear-gradient(180deg,#fff 0%, #fbfdfe 100%);
+    border-radius: 12px;
+    color: var(--muted);
+    box-shadow: var(--shadow);
+}
+
+/* small pop animation classes */
+@keyframes pop {
+    0% {
+        transform: scale(1);
+        opacity: 1
+    }
+
+    30% {
+        transform: scale(1.35)
+    }
+
+    60% {
+        transform: scale(.95)
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1
+    }
+}
+
+.icon-pop {
+    animation: pop 420ms cubic-bezier(.2,.9,.3,1);
+}
+
+@media (max-width: 480px) {
     header.page__head {
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:16px;
-      margin-bottom:18px;
+        /* margin-top: 80px; */
     }
-    header.page__head h1{
-      margin:0;
-      font-size:20px;
-      font-weight:800;
-    }
-    header.page__head p {
-      margin:0;
-      color:var(--muted);
-      font-size:14px;
-    }
-
-    /* top controls */
-    .controls {
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-	
-	.controls > .wishListBtn {
-		border: 1px solid;
-		background: burlywood;
-	}
-
-	.controls > .wishListBtn:hover {
-		
-	}
-    .btn {
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding:8px 12px;
-      border-radius:10px;
-      border:0;
-      background:#111827;
-      color:#fff;
-      font-weight:700;
-      cursor:pointer;
-    }
-    .btn--ghost {
-      background:transparent;
-      border:1px solid rgba(0,0,0,0.06);
-      color:var(--text);
-      font-weight:600;
-    }
-
-    /* card */
-    #wishlist-grid .wish-card {
-      background:var(--card-bg);
-      border-radius:var(--radius);
-      overflow:hidden;
-      box-shadow:var(--shadow);
-      display:flex;
-      flex-direction:column;
-      transition: transform .18s ease, box-shadow .18s ease;
-    }
-     #wishlist-grid .wish-card:hover {}
-
-    .wish-media {
-      position:relative;
-      padding:16px;
-      background:linear-gradient(180deg,#fbfdfe 0%, #fff 100%);
-      display:flex;
-      justify-content:center;
-      align-items:center;
-      height: 187px;
-    }
-    .wish-media img { max-width:100%; max-height:180px; object-fit:contain; border-radius:8px; }
-
-    /* small fav icon overlay in corner */
-    .wish-fav-corner {
-      position:absolute;
-      top:10px;
-      right:10px;
-      z-index:5;
-    }
-    .wish-fav {
-      display:inline-grid;
-      place-items:center;
-      width:40px;
-      height:40px;
-      border-radius:10px;
-      background:rgba(255,255,255,0.9);
-      border:1px solid rgba(0,0,0,0.04);
-      cursor:pointer;
-      transition: transform .16s ease, background .16s ease, box-shadow .16s ease;
-    }
-    .wish-fav i { color:var(--muted); font-size:16px; transition: transform .28s cubic-bezier(.2,.9,.3,1), color .16s ease; }
-    .wish-fav:hover { transform:scale(1.05); background:#fff; }
-    .wish-fav.is-fav { background: linear-gradient(90deg, rgba(239,68,68,0.08), rgba(253,224,71,0.03)); box-shadow:0 6px 18px rgba(239,68,68,0.12); }
-    .wish-fav.is-fav i { color:var(--danger); transform:scale(1.15) rotate(-6deg); }
-
-    /* content */
-    .wish-body {
-      padding:12px 14px 16px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      flex:1 1 auto;
-    }
-    .wish-title {
-      font-weight:700;
-      font-size:15px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .wish-desc { color:var(--muted); font-size:13px; line-height:1.2; height:2.4em; overflow:hidden; }
-
-    .wish-row { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-    .wish-price { font-weight:800; font-size:16px; color:var(--text); }
-    .wish-old { color:var(--muted); text-decoration:line-through; font-size:13px; }
-
-    .wish-actions { display:flex; gap:8px; margin-top:8px; }
-    .wish-actions .btn { padding:8px 10px; font-size:13px; }
-
-    /* empty state */
-    .empty {
-      text-align:center;
-      padding: 30px 20px;
-      background:linear-gradient(180deg,#fff 0%, #fbfdfe 100%);
-      border-radius:12px;
-      color:var(--muted);
-      box-shadow:var(--shadow);
-    }
-
-    /* small pop animation classes */
-    @keyframes pop {
-      0%{ transform:scale(1); opacity:1 }
-      30%{ transform:scale(1.35) }
-      60%{ transform:scale(.95) }
-      100%{ transform:scale(1); opacity:1 }
-    }
-    .icon-pop { animation: pop 420ms cubic-bezier(.2,.9,.3,1); }
-	
-	 @media (max-width: 480px) {
-		 header.page__head {
-			margin-top: 80px;
-		}
-	 }
+}

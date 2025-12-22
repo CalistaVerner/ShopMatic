@@ -1,4 +1,4 @@
-import { escapeHtml } from "../utils.js";
+import { escapeHtml, capitalize } from "../utils.js";
 import { ListButtonUpdater } from "./ListButtonUpdater.js";
 
 /**
@@ -84,13 +84,6 @@ export class RecipientAddressController {
   get currentAddress() { return this.current.address; }
   set currentAddress(val) { this.current.address = val; }
 
-  /* ======== Вспомогательные методы ======== */
-
-  // Делает первую букву строки заглавной: 'recipient' -> 'Recipient'
-  _capitalize(str) {
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  }
-
   /* ======== Публичный API ======== */
 
   openModal(type) {
@@ -144,7 +137,7 @@ export class RecipientAddressController {
    * Построение внутренней HTML-структуры модального окна по типу и конфигурации.
    */
   _buildModalInner(type, cfg) {
-    const capType = this._capitalize(type);
+    const capType = capitalize(type);
     const fieldsHtml = cfg.fields
       .map(
         (field) => `
@@ -247,7 +240,7 @@ export class RecipientAddressController {
    * поведение для соответствующего типа.
    */
   _mountModal(root, type, cfg) {
-    const capType   = this._capitalize(type);
+    const capType   = capitalize(type);
     const listId    = `${this._uid}-${type}-list`;
     const addBtnId  = `${this._uid}-add${capType}Btn`;
     const formId    = `${this._uid}-${type}-form`;
@@ -457,15 +450,18 @@ export class RecipientAddressController {
         const value = item[field.name];
         const placeholder = field.fieldPlaceholder ? field.fieldPlaceholder : '';
         return value
-          ? `<div class="itemField"><span class="fieldPlaceholder">${placeholder}</span>${escapeHtml(value)}</div>`
+          ? `<li class="itemField">
+				<span class="fieldPlaceholder">${placeholder}</span>
+				<span class="fieldValue">${escapeHtml(value)}</span>
+			 </li>`
           : '';
       })
       .join('');
     return `
       <div class="item-card ${type}-item" data-id="${escapeHtml(item.id)}">
-        <div style="flex:1;min-width:0">
+        <ul class="fieldsList">
           ${fieldsHtml}
-        </div>
+        </ul>
         <div class="item-actions" aria-hidden="false">
           <button class="action-btn select-btn" data-action="select" title="Выбрать">
             <i class="fa fa-check" aria-hidden="true"></i><span class="btn-label">Выбрать</span>

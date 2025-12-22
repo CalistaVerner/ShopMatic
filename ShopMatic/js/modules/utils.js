@@ -31,6 +31,10 @@ export function pluralize(n, forms) {
   return forms[2];
 }
 
+export function capitalize(str) { 
+	return str.charAt(0).toUpperCase() + str.slice(1); 
+}
+
 
 export function computeDiscountPercent(p) {
   if (!p || typeof p.oldPrice !== 'number') return 0;

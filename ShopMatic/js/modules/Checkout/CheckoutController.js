@@ -8,6 +8,7 @@ export class CheckoutController {
   constructor(cartService) {
     this.cartService = cartService;
     this.foxEngine = this.cartService?.storage?.shopMatic?.foxEngine;
+	this.shopMatic = this.cartService?.storage?.shopMatic;
 
     this.cartItems = [];
     this.totalPrice = 0;
@@ -117,7 +118,7 @@ export class CheckoutController {
         addressController: this.addressBook
       });
     }
-
+	await this.deliveryBlock._render();
     const { buyNowItem } = options;
 
     // 1. Если явно передан buyNowItem — он в приоритете
@@ -137,7 +138,7 @@ export class CheckoutController {
         // 3. Обычная корзина
         this.isBuyNow = false;
         try {
-          let items = await this.cartService.getCartItems();
+          let items = await this.shopMatic.cart.getCart();
           if (!Array.isArray(items)) items = [];
           // попытка использовать предпочтительный API includedStates, fallback на included
           this.cartItems = items.filter((item) => {
@@ -244,7 +245,7 @@ export class CheckoutController {
 
   async _checkCartNotEmpty() {
     try {
-      const items = await this.cartService.getCartItems();
+      const items = await this.shopMatic.cart.getCart();
       return Array.isArray(items) && items.length > 0;
     } catch {
       return false;
@@ -291,7 +292,7 @@ export class CheckoutController {
     this.isBuyNow = false;
 
     try {
-      const items = await this.cartService.getCartItems();
+      const items = await this.shopMatic.cart.getCart();
       this.cartItems = Array.isArray(items) ? items : [];
     } catch {
       this.cartItems = [];

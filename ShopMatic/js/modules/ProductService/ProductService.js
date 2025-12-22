@@ -1,22 +1,12 @@
-// ProductService/ProductService.js
-import { ProductFetcher } from './ProductFetcher.js';
-import { ProductNormalizer } from './ProductNormalizer.js';
-import { CategoriesAndBrandsCache } from './CategoriesAndBrandsCache.js';
+// ProductService/index.js
+// import { escapeHtml as _escapeHtml } from '../utils.js'  // можно удалить, не используется
 
-/**
- * ProductService — фасад над вспомогательными классами:
- *  - держит состояние products / карты
- *  - предоставляет публичное API, совместимое со старым ProductService
- *  - делегирует:
- *      • сеть → ProductFetcher
- *      • нормализацию → ProductNormalizer
- *      • кэши категорий/брендов → CategoriesAndBrandsCache
- */
+import { ProductBackend } from './ProductBackend.js';
+import { ProductCache } from './ProductCache.js';
+import { ProductNormalizer } from './ProductNormalizer.js';
+import { SelectFiller } from './SelectFiller.js';
+
 export class ProductService {
-  /**
-   * Статические текстовые сообщения для вывода пользователю
-   * @type {Readonly<Record<string,string>>}
-   */
   static UI_MESSAGES = Object.freeze({
     ERROR_NO_ENGINE: 'Интеграция с бекендом недоступна',
     ERROR_TIMEOUT: 'Запрос продукта превысил время ожидания',
@@ -30,17 +20,8 @@ export class ProductService {
     UPSERT_ERROR: 'Ошибка добавления/обновления товара'
   });
 
-  /**
-   * @param {any} foxEngine Экземпляр движка отправки запросов
-   * @param {Object} [opts]
-   * @param {Object} [opts.endpoints] Переопределения имён эндпоинтов
-   * @param {number} [opts.timeoutMs] Таймаут запросов в миллисекундах
-   * @param {boolean} [opts.debug] Включить логирование
-   */
   constructor(foxEngine, opts = {}) {
     if (!foxEngine) throw new TypeError('ProductService requires foxEngine');
-
-    this.foxEngine = foxEngine;
 
     const {
       endpoints = {
@@ -53,37 +34,52 @@ export class ProductService {
       debug = false
     } = opts;
 
-    this.opts = { endpoints, timeoutMs, debug: Boolean(debug) };
+    this.opts = { endpoints, timeoutMs, debug };
 
-    /** @type {Array<any>} */
-    this.products = [];
-    /** @type {Map<string,any>} */
-    this._productMap = new Map();
-    /** @type {Set<Function>} */
     this._subscribers = new Set();
 
-    const normalizeId = (v) => (v == null ? '' : String(v).trim());
+    // логгер, который учитывает debug
+    this._log = (...args) => {
+      if (!this.opts.debug) return;
+      const engineLogger =
+        typeof foxEngine.log === 'function'
+          ? foxEngine.log.bind(foxEngine)
+          : console.debug;
+      try {
+        engineLogger(...args);
+      } catch {
+        console.debug(...args);
+      }
+    };
 
-    this.cache = new CategoriesAndBrandsCache(normalizeId);
-    this.fetcher = new ProductFetcher(foxEngine, {
-      endpoints,
-      timeoutMs,
-      debug,
-      msgFn: (key, vars) => this._msg(key, vars),
-      logFn: (...args) => this._log(...args)
+    this.backend = new ProductBackend(foxEngine, this.opts, this._log);
+    this.cache = new ProductCache();
+    this.normalizer = new ProductNormalizer(this.cache, this.backend);
+    this.selectFiller = new SelectFiller(this.backend, this.cache, (k, vars) =>
+      this._msg(k, vars)
+    );
+
+    // короткий алиас, чтобы совместимость с твоим кодом сохранить:
+    Object.defineProperty(this, 'products', {
+      get: () => this.cache.products,
+      set: (v) => {
+        this.cache.products = v;
+        this.cache.rebuildMaps();
+      }
     });
-    this.normalizer = new ProductNormalizer({
-      cache: this.cache,
-      fetcher: this.fetcher,
-      normalizeId
-    });
+    this._productMap = this.cache.productMap;
+    this._categoriesMap = this.cache.categoriesMap;
+    this._brandsMap = this.cache.brandsMap;
   }
 
-  /* ---------------------- utils ---------------------- */
+  /* ------------ helpers (msg, id, notify) ------------ */
 
   _msg(key, vars = {}) {
-    const pool = this.constructor?.UI_MESSAGES || {};
-    const tpl = pool[key] ?? '';
+    const tpl =
+      (this.constructor &&
+        this.constructor.UI_MESSAGES &&
+        this.constructor.UI_MESSAGES[key]) ||
+      '';
     return String(tpl).replace(/\{([^}]+)\}/g, (m, k) =>
       Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m
     );
@@ -92,19 +88,6 @@ export class ProductService {
   _normalizeId(v) {
     if (v === undefined || v === null) return '';
     return String(v).trim();
-  }
-
-  _log(...args) {
-    if (!this.opts.debug) return;
-    const logger =
-      typeof this.foxEngine.log === 'function'
-        ? this.foxEngine.log.bind(this.foxEngine)
-        : console.debug;
-    try {
-      logger(...args);
-    } catch {
-      console.debug(...args);
-    }
   }
 
   _notifySubscribers(change = { type: 'set', changedIds: [] }) {
@@ -117,81 +100,88 @@ export class ProductService {
     }
   }
 
-  _rebuildMaps() {
-    this._productMap.clear();
-    this.cache.clear({ categories: true, brands: true });
+  /* ------------ public products API ------------ */
 
-    for (const p of this.products) {
-      if (!p || !p.name) continue;
-      const key = this._normalizeId(p.name);
-      this._productMap.set(key, p);
-    }
-
-    this.cache.complementFromProducts(this.products);
-  }
-
-  /* ---------------------- products API ---------------------- */
-
-  /**
-   * Возвращает список продуктов. По умолчанию возвращает копию.
-   * @param {Object} [param0]
-   * @param {boolean} [param0.clone=true]
-   * @returns {Array<any>}
-   */
   getProducts({ clone = true } = {}) {
-    return clone ? this.products.map((p) => ({ ...p })) : this.products;
+    return this.cache.getProducts({ clone });
   }
 
-  /**
-   * Находит продукт по нормализованному id
-   * @param {any} id
-   * @returns {any|null}
-   */
   findById(id) {
-    const sid = this._normalizeId(id);
-    return sid ? this._productMap.get(sid) || null : null;
+    return this.cache.findById(id);
   }
 
-  /**
-   * Загружает список товаров. Можно указать force=true для принудительного обновления.
-   * @param {Object} [options]
-   * @param {boolean} [options.force=false]
-   * @param {any} [options.request=null] Переопределение запроса
-   * @returns {Promise<Array<any>>}
-   */
   async loadProductsSimple({ force = false, request = null } = {}) {
-    if (this.products.length && !force && !request) {
-      return this.getProducts();
+    // if (this.products.length && !force && !request) return this.getProducts();
+
+    const defaultEndpoint = this.opts.endpoints.products;
+    let endpoint = defaultEndpoint;
+    let payload = { sysRequest: endpoint };
+
+    if (request) {
+      if (typeof request === 'string') {
+        endpoint = request;
+        payload.sysRequest = endpoint;
+      } else {
+        const {
+          endpoint: reqEndpoint,
+          sysRequest: reqSys,
+          payload: reqPayload,
+          params: reqParams,
+          ...extra
+        } = request;
+        endpoint = reqEndpoint ?? reqSys ?? defaultEndpoint;
+        payload = Object.assign(
+          {},
+          reqParams ?? {},
+          reqPayload ?? {},
+          extra ?? {},
+          { sysRequest: endpoint }
+        );
+      }
     }
 
     try {
-      const rawList = await this.fetcher.fetchProducts(request);
-      const normalized = [];
+      const res = await this.backend.safeCall(payload, 'JSON');
+      const items = this.backend.extractArray(res, ['items', 'products', 'data']);
+      const normalized = await Promise.all(
+        items
+          .map((i) => this.normalizer.normalizeProduct(i))
+          .filter(Boolean)
+      );
+      this.cache.setProducts(normalized);
 
-      for (const raw of rawList) {
-        const p = await this.normalizer.normalize(raw);
-        if (p && p.name) normalized.push(p);
+      // ensure simple maps заполнены
+      for (const p of this.cache.products) {
+        if (p.category) {
+          this.cache._setCache(
+            this.cache.categoriesMap,
+            p.category,
+            p.categoryName || p.category
+          );
+        }
+        if (p.brand) {
+          this.cache._setCache(
+            this.cache.brandsMap,
+            p.brand,
+            p.brandName || p.brand
+          );
+        }
       }
 
-      this.products = normalized;
-      this._rebuildMaps();
       this._notifySubscribers({
-        type: 'set',
-        changedIds: normalized.map((p) => p.name)
+        type: 'reload',
+        changedIds: this.cache.products.map((p) => p.name)
       });
 
       return this.getProducts();
     } catch (err) {
       this._log(this._msg('LOAD_PRODUCTS_ERROR'), err);
+      // оставляем старый кэш
+      this.cache.rebuildMaps();
       return this.getProducts();
     }
   }
 
-  /**
-   * Загружает продукт по ID (если нет в кеше).
-   * @param {any} id
-   * @returns {Promise<any|null>}
-   */
   async fetchById(id) {
     const sid = this._normalizeId(id);
     if (!sid) return null;
@@ -199,76 +189,79 @@ export class ProductService {
     const existing = this.findById(sid);
     if (existing) return existing;
 
+    const endpoint = this.opts.endpoints.productById;
     try {
-      const raw = await this.fetcher.fetchProductById(sid);
+      const res = await this.backend.safeCall(
+        { sysRequest: endpoint, id: sid },
+        'JSON'
+      );
+      const items = this.backend.extractArray(res, [
+        'product',
+        'items',
+        'products',
+        'data'
+      ]);
+      const raw = items.length ? items[0] : res.product ?? res;
       if (!raw) return null;
 
-      const normalized = await this.normalizer.normalize(raw);
+      const normalized = await this.normalizer.normalizeProduct(raw);
       if (!normalized) return null;
 
-      this.products.push(normalized);
-      this._productMap.set(normalized.name, normalized);
-      this.cache.complementFromProducts([normalized]);
+      const upserted = this.cache.upsertProduct(normalized);
 
-      this._notifySubscribers({ type: 'add', changedIds: [normalized.name] });
-
-      return normalized;
+      this._notifySubscribers({ type: 'add', changedIds: [upserted.name] });
+      return upserted;
     } catch (err) {
       this._log(this._msg('FETCH_BY_ID_ERROR'), err);
       return null;
     }
   }
 
-  /**
-   * Добавляет или обновляет продукт. Возвращает нормализованный объект.
-   * @param {any} raw
-   * @returns {Promise<any|null>}
-   */
-  async upsertProduct(raw) {
+  async setProducts(rawProducts = []) {
+    const arr = Array.isArray(rawProducts) ? rawProducts : [];
     try {
-      const normalized = await this.normalizer.normalize(raw);
-      if (!normalized || !normalized.name) return null;
+      const normalized = await Promise.all(
+        arr.map((r) => this.normalizer.normalizeProduct(r)).filter(Boolean)
+      );
+      this.cache.setProducts(normalized);
 
-      const existing = this.findById(normalized.name);
-      if (existing) {
-        Object.assign(existing, normalized);
-      } else {
-        this.products.push(normalized);
+      for (const p of this.cache.products) {
+        if (p.category) {
+          this.cache._setCache(
+            this.cache.categoriesMap,
+            p.category,
+            p.categoryName || p.category
+          );
+        }
+        if (p.brand) {
+          this.cache._setCache(
+            this.cache.brandsMap,
+            p.brand,
+            p.brandName || p.brand
+          );
+        }
       }
 
-      this._rebuildMaps();
       this._notifySubscribers({
-        type: existing ? 'update' : 'add',
-        changedIds: [normalized.name]
+        type: 'set',
+        changedIds: this.cache.products.map((p) => p.name)
       });
-
-      return normalized;
+      return true;
     } catch (err) {
-      this._log(this._msg('UPSERT_ERROR'), err);
-      return null;
+      this._log(this._msg('LOAD_PRODUCTS_ERROR'), err);
+      return false;
     }
   }
 
-  /* ---------------------- categories / brands API ---------------------- */
+  /* ------------ categories / brands ------------ */
 
-  /**
-   * Запрашивает и обновляет список категорий.
-   * @returns {Promise<Array<{name:string, fullname:string}>>}
-   */
   async fetchCategories() {
-    const fromCache = () =>
-      Array.from(this.cache.categoriesMap.entries()).map(([name, fullname]) => ({
-        name,
-        fullname
-      }));
-
     try {
-      const arr = await this.fetcher.fetchList('categories');
+      const arr = await this.backend.fetchList('categories');
       const out = arr
         .map((c) => {
           if (!c) return null;
           if (typeof c === 'string') return { name: c, fullname: c };
-
           return {
             name: c.name ?? c.id ?? '',
             fullname: c.fullname ?? c.name ?? c.title ?? ''
@@ -278,71 +271,77 @@ export class ProductService {
 
       for (const c of out) {
         const name = String(c.name).trim();
-        const fullname = String(c.fullname).trim() || name;
-        this.cache.setCategory(name, fullname, true);
+        const fullname = String(c.fullname || name).trim();
+        this.cache._setCache(this.cache.categoriesMap, name, fullname, false);
       }
 
-      return out.length ? out : fromCache();
+      if (out.length) return out;
+      return Array.from(this.cache.categoriesMap.entries()).map(
+        ([name, fullname]) => ({ name, fullname })
+      );
     } catch (err) {
       this._log(this._msg('FETCH_CATEGORIES_ERROR'), err);
-      return fromCache();
+      return Array.from(this.cache.categoriesMap.entries()).map(
+        ([name, fullname]) => ({ name, fullname })
+      );
     }
   }
 
-  /**
-   * Запрашивает и обновляет список брендов.
-   * @returns {Promise<Array<{id:string, name:string, fullname:string}>>}
-   */
   async fetchBrands() {
-    const fromCache = () =>
-      Array.from(this.cache.brandsMap.entries()).map(([id, name]) => ({
-        id,
-        name,
-        fullname: name
-      }));
-
     try {
-      const arr = await this.fetcher.fetchList('brands');
+      const arr = await this.backend.fetchList('brands');
       const out = arr
         .map((b) => {
           if (!b) return null;
-
           if (typeof b === 'string') {
             const id = this._normalizeId(b);
             return { id, name: b, fullname: b };
           }
-
           const id = this._normalizeId(b.id ?? b.key ?? b.name ?? '');
           if (!id) return null;
-
           const name = String(
             b.name ?? b.fullname ?? b.title ?? b.label ?? id
           ).trim();
           const fullname = String(b.fullname ?? name).trim() || name || id;
-
           return { id, name, fullname };
         })
         .filter(Boolean);
 
       for (const b of out) {
-        this.cache.setBrand(b.id, b.fullname || b.name, true);
+        this.cache._setCache(
+          this.cache.brandsMap,
+          b.id,
+          b.fullname || b.name,
+          false
+        );
       }
 
-      this.cache.complementFromProducts(this.products);
+      // дополним брендами из products
+      for (const p of this.cache.products) {
+        const bid = this._normalizeId(p.brand);
+        if (!bid) continue;
+        const name = p.brandName || p.brand || bid;
+        if (!this.cache.brandsMap.has(bid)) {
+          this.cache.brandsMap.set(bid, name);
+        }
+      }
 
-      return out.length ? out : fromCache();
+      if (out.length) return out;
+      return Array.from(this.cache.brandsMap.entries()).map(
+        ([id, fullname]) => ({ id, name: fullname, fullname })
+      );
     } catch (err) {
       this._log('ProductService.fetchBrands failed', err);
 
       const map = new Map();
-
-      for (const p of this.products) {
+      for (const p of this.cache.products) {
         const bid = this._normalizeId(p.brand);
         if (!bid) continue;
-
         const name = p.brandName || p.brand || bid;
         if (!map.has(bid)) map.set(bid, name);
-        if (!this.cache.brandsMap.has(bid)) this.cache.setBrand(bid, name);
+        if (!this.cache.brandsMap.has(bid)) {
+          this.cache.brandsMap.set(bid, name);
+        }
       }
 
       return Array.from(map.entries()).map(([id, name]) => ({
@@ -354,246 +353,37 @@ export class ProductService {
   }
 
   getBrandNameById(id) {
-    return this.cache.getBrandNameFromCache(id, this.products);
+    return this.cache.getBrandNameById(id);
   }
 
   async fetchBrandNameById(id) {
-    const sid = this._normalizeId(id);
-    if (!sid) return '';
-
-    try {
-      const item = await this.fetcher.fetchEntityById('brands', sid);
-      if (!item) return '';
-
-      const bid = this._normalizeId(item.name) || sid;
-      const fullname =
-        String(item.fullname).trim() ||
-        String(item.name).trim() ||
-        bid;
-
-      this.cache.setBrand(bid, fullname, true);
-      return fullname;
-    } catch (err) {
-      this._log('ProductService.fetchBrandNameById failed', err);
-      return this.getBrandNameById(sid);
-    }
+    return this.normalizer._fetchBrandNameById(id);
   }
 
   getCatNameById(id) {
-    return this.cache.getCategoryNameFromCache(id, this.products);
+    return this.cache.getCategoryNameById(id);
   }
 
   async fetchCatById(id) {
-    const sid = this._normalizeId(id);
-    if (!sid) return '';
-
-    try {
-      const item = await this.fetcher.fetchEntityById('categories', sid);
-      if (!item) return '';
-
-      const cid = this._normalizeId(item.name) || sid;
-      const fullname = String(item.fullname).trim() || cid;
-
-      this.cache.setCategory(cid, fullname, true);
-      return fullname;
-    } catch (err) {
-      this._log('ProductService.fetchCatById failed', err);
-      return this.getCatNameById(sid);
-    }
+    return this.normalizer._fetchCategoryNameById(id);
   }
 
-  /* ---------------------- fill select generic ---------------------- */
+  /* ------------ select helpers ------------ */
 
-  /**
-   * Универсальный наполнитель <select> на основе списка сущностей и данных из products.
-   * Логика почти 1:1 со старой реализацией.
-   *
-   * @param {HTMLElement|string|null} selectEl
-   * @param {Object} param1
-   * @param {string} param1.entity (например, 'categories' или 'brands')
-   * @param {string} param1.productProp (например, 'category' или 'brand')
-   * @param {boolean} [param1.includeAllOption=true]
-   * @param {boolean} [param1.onlyFromProducts=false]
-   * @param {boolean} [param1.sort=true]
-   * @param {string} [param1.allMsgKey='ALL_CATEGORIES_OPTION']
-   * @param {string} [param1.selected='']
-   * @returns {Promise<boolean>}
-   */
-  async fillSelect(
-    selectEl,
-    {
-      entity,
-      productProp,
-      includeAllOption = true,
-      onlyFromProducts = false,
-      sort = true,
-      allMsgKey = 'ALL_CATEGORIES_OPTION',
-      selected = ''
-    } = {}
-  ) {
-    if (typeof selectEl === 'string') {
-      selectEl = document.querySelector(selectEl);
-    }
-    if (!selectEl) return false;
-
-    const slug = (str) => String(str).toLowerCase().replace(/\s+/g, '');
-    const collected = new Map();
-
-    const add = (id, name, fullname) => {
-      const safeName =
-        name && name.toLowerCase() !== 'undefined' ? name : '';
-      const safeFullname =
-        fullname && fullname.toLowerCase() !== 'undefined'
-          ? fullname
-          : '';
-      const human = safeFullname || safeName || id;
-      if (!human) return;
-
-      const key = slug(human);
-      const entry = collected.get(key) || {
-        id: '',
-        name: '',
-        fullname: ''
-      };
-
-      if (!entry.id && id) entry.id = id;
-      if (!entry.name && safeName) entry.name = safeName;
-      if (!entry.fullname && safeFullname) entry.fullname = safeFullname;
-
-      collected.set(key, entry);
-    };
-
-    if (!onlyFromProducts) {
-      const list = await this.fetcher.fetchList(entity).catch((e) => {
-        this._log(this._msg('FILL_CATEGORIES_WARN'), e);
-        return [];
-      });
-
-      for (const item of list) {
-        if (!item) continue;
-
-        if (typeof item === 'string') {
-          const id = this._normalizeId(item);
-          add(id, item, item);
-        } else {
-          const id = this._normalizeId(
-            item.id ?? item.name ?? item.key ?? ''
-          );
-          const name = String(item.name ?? '').trim();
-          const fullname = String(
-            item.fullname ?? item.title ?? name
-          ).trim();
-          add(id, name, fullname);
-        }
-      }
-    }
-
-    for (const p of this.products) {
-      const id = this._normalizeId(p[productProp]);
-      const name =
-        p[`${productProp}Name`] != null
-          ? String(p[`${productProp}Name`]).trim()
-          : '';
-      const fullname =
-        p[`${productProp}Fullname`] != null
-          ? String(p[`${productProp}Fullname`]).trim()
-          : '';
-
-      add(id, name, fullname);
-
-      if (entity === 'brands') {
-        const nm =
-          fullname && fullname.toLowerCase() !== 'undefined'
-            ? fullname
-            : name;
-        if (id && nm) this.cache.setBrand(id, nm, true);
-      }
-
-      if (entity === 'categories') {
-        const nm =
-          fullname && fullname.toLowerCase() !== 'undefined'
-            ? fullname
-            : name;
-        if (id && nm) this.cache.setCategory(id, nm, true);
-      }
-    }
-
-    let rows = Array.from(collected.values());
-
-    if (sort) {
-      rows.sort((a, b) =>
-        String(a.fullname || a.name).localeCompare(
-          String(b.fullname || b.name)
-        )
-      );
-    }
-
-    selectEl.innerHTML = '';
-
-    if (includeAllOption) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = this._msg(allMsgKey);
-      selectEl.appendChild(opt);
-    }
-
-    for (const row of rows) {
-      const opt = document.createElement('option');
-      opt.value = row.id || row.name;
-      opt.textContent = row.fullname || row.name || row.id;
-
-      if (selected && String(selected) === opt.value) {
-        opt.selected = true;
-      }
-
-      if (row.id) opt.dataset.id = row.id;
-      if (row.fullname) opt.dataset.fullname = row.fullname;
-      if (row.name) opt.dataset.name = row.name;
-
-      selectEl.appendChild(opt);
-    }
-
-    return true;
+  async _fillSelectGeneric(el, opts) {
+    return this.selectFiller.fillSelectGeneric(el, opts);
   }
 
-  /**
-   * Упрощённые обёртки под старое API.
-   */
   async fillCategories(selectEl, opts = {}) {
-    return this.fillSelect(
-      selectEl,
-      Object.assign(
-        {
-          entity: 'categories',
-          productProp: 'category',
-          allMsgKey: 'ALL_CATEGORIES_OPTION'
-        },
-        opts
-      )
-    );
+    return this.selectFiller.fillCategories(selectEl, opts);
   }
 
   async fillBrands(selectEl, opts = {}) {
-    return this.fillSelect(
-      selectEl,
-      Object.assign(
-        {
-          entity: 'brands',
-          productProp: 'brand',
-          allMsgKey: 'ALL_BRANDS_OPTION'
-        },
-        opts
-      )
-    );
+    return this.selectFiller.fillBrands(selectEl, opts);
   }
 
-  /* ---------------------- misc ---------------------- */
+  /* ------------ misc ------------ */
 
-  /**
-   * Подписывается на изменения. Возвращает функцию для отписки.
-   * @param {Function} fn
-   * @returns {Function}
-   */
   subscribe(fn) {
     if (typeof fn !== 'function') {
       throw new TypeError(this._msg('SUBSCRIBE_ARG_ERROR'));
@@ -602,18 +392,33 @@ export class ProductService {
     return () => this._subscribers.delete(fn);
   }
 
-  /**
-   * Очищает кеши продуктов, категорий или брендов.
-   * @param {Object} param0
-   * @param {boolean} [param0.products=false]
-   * @param {boolean} [param0.categories=false]
-   * @param {boolean} [param0.brands=false]
-   */
-  clearCache({ products = false, categories = false, brands = false } = {}) {
-    if (products) {
-      this.products = [];
-      this._productMap.clear();
+  async upsertProduct(raw) {
+    try {
+      const normalized = await this.normalizer.normalizeProduct(raw);
+      const upserted = this.cache.upsertProduct(normalized);
+      if (!upserted) return null;
+
+      const type = this.cache.products.includes(upserted) ? 'update' : 'add';
+      this._notifySubscribers({ type, changedIds: [upserted.name] });
+      return upserted;
+    } catch (err) {
+      this._log(this._msg('UPSERT_ERROR'), err);
+      return null;
     }
-    this.cache.clear({ categories, brands });
+  }
+
+  _dispatchLocalStorageEvent(key, oldValue, newValue) {
+    const ev = new StorageEvent('storage', {
+      key,
+      oldValue,
+      newValue,
+      url: location.href,
+      storageArea: localStorage
+    });
+    window.dispatchEvent(ev);
+  }
+
+  clearCache(opts = {}) {
+    this.cache.clearCache(opts);
   }
 }

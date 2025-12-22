@@ -1,11 +1,3 @@
-#top-second-section {
-  font-family: 'Roboto', sans-serif;
-  display: flex;
-  gap: 16px;
-  margin: 0 auto;
-  max-width: 1200px;
-}
-
 .checkoutContainer .delivery-card:not(.disabled) .delivery-label {
     cursor: pointer;
 }
@@ -84,10 +76,4 @@
 .checkoutContainer .checkmark::before,
 .checkoutContainer .checkmark::after {
   transition: opacity 0.3s, transform 0.3s ease-in-out;
-}
-
-/* Стили для адреса */
-.address-details {
-  font-size: 14px;
-  color: #666;
 }

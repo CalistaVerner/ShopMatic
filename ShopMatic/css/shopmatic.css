@@ -303,6 +303,24 @@
   }
 }
 
+@media (max-width: 480px) {
+	.price-submain {
+	  font-size: 12px;
+	  font-weight: 700;
+	  color: var(--price-term);
+	  font-family: 'FSElliotPro';
+	  margin: 5px;
+	}
+
+	.price-main {
+	  font-size: 16px;
+	  font-weight: 700;
+	  color: var(--price-term);
+	  font-family: 'FSElliotPro-Heavy';
+	  margin: 0px 2px;
+	}
+}
+
  .page-header {
      margin-bottom: 24px;
      text-align: left;

@@ -1,69 +1,130 @@
+// ProductService/ProductNormalizer.js
+
 export class ProductNormalizer {
-  constructor({ cache, fetcher, normalizeId } = {}) {
-    if (!cache) throw new TypeError('ProductNormalizer requires cache');
+  /**
+   * @param {ProductCache} cache
+   * @param {ProductBackend} backend
+   */
+  constructor(cache, backend) {
     this.cache = cache;
-    this.fetcher = fetcher || null;
-    this._normalizeId = typeof normalizeId === 'function'
-      ? normalizeId
-      : (v) => (v == null ? '' : String(v).trim());
+    this.backend = backend;
+  }
+
+  _normalizeId(v) {
+    if (v === undefined || v === null) return '';
+    return String(v).trim();
   }
 
   _parseCategory(raw) {
     const rawCat = raw.category ?? raw.cat ?? raw.categoryId ?? '';
     const key = this._normalizeId(rawCat);
-    return { key, name: String(raw.categoryName ?? raw.categoryFullname ?? '').trim() };
+    const name = String(raw.categoryName ?? raw.categoryFullname ?? '').trim();
+    return { key, name };
   }
 
   _parseBrand(raw) {
     let rawBrand = raw.brand ?? raw.brandId ?? '';
-    if (typeof rawBrand === 'object') rawBrand = rawBrand.id ?? rawBrand.key ?? rawBrand.name ?? '';
+    if (typeof rawBrand === 'object') {
+      rawBrand = rawBrand.id ?? rawBrand.key ?? rawBrand.name ?? '';
+    }
     const key = this._normalizeId(rawBrand);
-    return { key, name: String(raw.brandName ?? raw.brandFullname ?? '').trim() };
+    const name = String(raw.brandName ?? raw.brandFullname ?? '').trim();
+    return { key, name };
+  }
+
+  async _fetchBrandNameById(id) {
+    const sid = this._normalizeId(id);
+    if (!sid) return '';
+    try {
+      const item = await this.backend.fetchEntityById('brands', sid);
+      if (!item) return '';
+      const bid = this._normalizeId(item.name) || sid;
+      const fullname = String(item.fullname || '').trim() || bid;
+      this.cache.brandsMap.set(bid, fullname);
+      return fullname;
+    } catch {
+      return this.cache.getBrandNameById(sid);
+    }
+  }
+
+  async _fetchCategoryNameById(id) {
+    const sid = this._normalizeId(id);
+    if (!sid) return '';
+    try {
+      const item = await this.backend.fetchEntityById('categories', sid);
+      if (!item) return '';
+      const cid = this._normalizeId(item.name) || sid;
+      const fullname = String(item.fullname || '').trim() || cid;
+      this.cache.categoriesMap.set(cid, fullname);
+      return fullname;
+    } catch {
+      return this.cache.getCategoryNameById(sid);
+    }
   }
 
   async _resolveBrandAndCategoryNames(categoryKey, brandKey, fallbackCategory = '', fallbackBrand = '') {
-    const resolveName = async (key, type, fallback) => {
-      if (!key) return fallback;
-      const cached = type === 'brand' ? this.cache.getBrandNameFromCache(key) : this.cache.getCategoryNameFromCache(key);
-      if (cached) return cached;
-      if (!this.fetcher) return fallback;
-
-      const item = await this.fetcher.fetchEntityById(type, key).catch(() => null);
-      if (!item) return fallback;
-      const id = this._normalizeId(item.name ?? item.id ?? item.key ?? '');
-      const name = String(item.fullname ?? item.name ?? item.title ?? id).trim() || id;
-      type === 'brand' ? this.cache.setBrand(id, name, true) : this.cache.setCategory(id, name, true);
-      return name;
+    const ensureBrandName = async () => {
+      if (!brandKey) return '';
+      // сначала пытаемся из кеша
+      const fromCache = this.cache.getBrandNameById(brandKey);
+      if (fromCache) return fromCache;
+      return this._fetchBrandNameById(brandKey);
     };
 
-    const [resolvedBrandName, resolvedCatName] = await Promise.all([
-      resolveName(brandKey, 'brand', fallbackBrand),
-      resolveName(categoryKey, 'category', fallbackCategory)
+    const ensureCatName = async () => {
+      if (!categoryKey) return '';
+      const fromCache = this.cache.getCategoryNameById(categoryKey);
+      if (fromCache) return fromCache;
+      return this._fetchCategoryNameById(categoryKey);
+    };
+
+    const [brandNameResolved, catNameResolved] = await Promise.all([
+      ensureBrandName(),
+      ensureCatName()
     ]);
 
-    return [resolvedCatName || categoryKey, resolvedBrandName || brandKey];
+    const finalBrandName = fallbackBrand || brandNameResolved || brandKey;
+    const finalCatName = fallbackCategory || catNameResolved || categoryKey;
+    return [finalCatName, finalBrandName];
   }
 
-  async normalize(raw) {
+  /**
+   * Нормализует одну запись продукта.
+   * @param {any} raw
+   * @returns {Promise<Object|null>}
+   */
+  async normalizeProduct(raw) {
     if (!raw || typeof raw !== 'object') return null;
 
-    const name = this._normalizeId(raw.name ?? raw.id ?? raw.title ?? raw.fullname ?? raw.sku);
+    const name = this._normalizeId(
+      raw.name ?? raw.id ?? raw.title ?? raw.fullname ?? raw.sku
+    );
     if (!name) return null;
 
     const title = String(raw.fullname ?? raw.title ?? raw.name ?? '').trim();
     const price = Number(raw.price ?? raw.cost ?? 0);
     const oldPrice = Number(raw.oldPrice ?? raw.price_old ?? 0);
     const stock = Number(raw.stock ?? raw.count ?? raw.qty ?? 0);
-    const picture = String(raw.picture ?? raw.image ?? raw.img ?? '/assets/no-image.png');
+    const picture = String(
+      raw.picture ?? raw.image ?? raw.img ?? '/assets/no-image.png'
+    );
 
     const { key: categoryKey, name: categoryNameInput } = this._parseCategory(raw);
     const { key: brandKey, name: brandNameInput } = this._parseBrand(raw);
 
-    const [resolvedCatName, resolvedBrandName] =
-      await this._resolveBrandAndCategoryNames(categoryKey, brandKey, categoryNameInput, brandNameInput);
+    const [resolvedCatName, resolvedBrandName] = await this._resolveBrandAndCategoryNames(
+      categoryKey,
+      brandKey,
+      categoryNameInput,
+      brandNameInput
+    );
 
-    if (categoryKey && resolvedCatName) this.cache.setCategory(categoryKey, resolvedCatName);
-    if (brandKey && resolvedBrandName) this.cache.setBrand(brandKey, resolvedBrandName);
+    if (categoryKey && resolvedCatName) {
+      this.cache._setCache(this.cache.categoriesMap, categoryKey, resolvedCatName);
+    }
+    if (brandKey && resolvedBrandName) {
+      this.cache._setCache(this.cache.brandsMap, brandKey, resolvedBrandName);
+    }
 
     return {
       _raw: raw,

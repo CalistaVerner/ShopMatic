@@ -1,87 +1,95 @@
 /**
- * IncludedStates — управление состояниями "included" (localStorage, master state)
- * ctx — CartUI
+ * @author Calista Verner
  *
- * Поведение:
- *  - item.included — главный источник истины (если задан)
- *  - при загрузке из localStorage устанавливаются item.included (default true)
- *  - toggleInclude меняет только один товар, обновляет internal map и сохраняет её (debounced)
- *  - saveIncludedStatesToLocalStorage собирает карту из текущих item.included значений
- *  - есть логирование для отладки
+ * IncludedStates — isolated "included" state service.
+ * Responsibilities:
+ *  - Persist/retrieve included map from localStorage
+ *  - Apply included state to provided items (optional)
+ *  - Emit "included:changed" via eventBus (if present)
+ *
+ * IMPORTANT:
+ *  - No cart mutations besides setting item.included when asked to apply
+ *  - No UI orchestration (does NOT call updateCartUI)
  */
 export class IncludedStates {
-  constructor(ctx) {
-    this.ctx = ctx;
+  /**
+   * @param {object} ctx
+   * @param {object} [opts]
+   * @param {string} [opts.storageKey]
+   * @param {any}    [opts.eventBus]
+   * @param {boolean}[opts.defaultIncluded]
+   * @param {boolean}[opts.debug]
+   */
+  constructor(ctx, opts = {}) {
+    this.ctx = ctx || null;
 
-    // internal cache of the stored map (key -> boolean)
-    this._map = null;
+    this.storageKey =
+      String(opts.storageKey || ctx?.includeStorageKey || 'cart:included_states');
 
-    // debounce timer id for saves
+    this.eventBus = opts.eventBus || ctx?.eventBus || null;
+
+    this.defaultIncluded =
+      typeof opts.defaultIncluded === 'boolean' ? opts.defaultIncluded : true;
+
+    this._debug = !!opts.debug;
+
+    this._map = null; // lazy
     this._saveTimer = null;
-    this._saveDelay = 150; // ms
-
-    // safety: do not spam console in prod, you can toggle this
-    this._debug = true;
+    this._saveDelay = 150;
   }
 
-  // ---------- Storage helpers ----------
+  // ---------------------------------------------------------------------------
+  // Map basics
+  // ---------------------------------------------------------------------------
+
+  _normalizeIdKey(id) {
+    const c = this.ctx;
+    if (c && typeof c._normalizeIdKey === 'function') return String(c._normalizeIdKey(id));
+    return String(id ?? '').trim();
+  }
+
+  _storageAvailable() {
+    try {
+      return typeof window !== 'undefined' && !!window.localStorage;
+    } catch {
+      return false;
+    }
+  }
 
   _readStorageMap() {
-    const c = this.ctx;
-    if (this._map !== null) return this._map;
-    this._map = Object.create(null);
+    if (this._map) return this._map;
+
+    const out = Object.create(null);
+    if (!this._storageAvailable()) {
+      this._map = out;
+      return out;
+    }
+
     try {
-      if (typeof window === 'undefined' || !window.localStorage) {
-        if (this._debug) console.debug('[IncludedStates] storage unavailable');
-        return this._map;
-      }
-      const raw = window.localStorage.getItem(c.includeStorageKey);
+      const raw = window.localStorage.getItem(this.storageKey);
       if (!raw) {
-        if (this._debug) console.debug('[IncludedStates] no stored map');
-        return this._map;
+        this._map = out;
+        return out;
       }
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
-        for (const k of Object.keys(parsed)) {
-          this._map[k] = Boolean(parsed[k]);
-        }
-        if (this._debug) console.debug('[IncludedStates] loaded map from storage', this._map);
+        for (const k of Object.keys(parsed)) out[String(k)] = !!parsed[k];
       }
     } catch (e) {
-      c._logError('IncludedStates._readStorageMap failed', e);
-      // leave _map = {}
+      this.ctx?._logError?.('[IncludedStates] read failed', e);
     }
-    return this._map;
+
+    this._map = out;
+    return out;
   }
-  
-	/**
-	 * Возвращает количество выбранных товаров (included = true)
-	 */
-	countSelected() {
-	  const c = this.ctx;
-	  if (!Array.isArray(c.cart) || c.cart.length === 0) return 0;
-
-	  let count = 0;
-	  for (const it of c.cart) {
-		if (this.ensureItemIncluded(it)) count++;
-	  }
-	  return count;
-	}
-
 
   _writeStorageImmediate() {
-    const c = this.ctx;
+    if (!this._storageAvailable()) return;
     try {
-      if (typeof window === 'undefined' || !window.localStorage) {
-        if (this._debug) console.debug('[IncludedStates] storage unavailable, skip write');
-        return;
-      }
-      // ensure _map is up-to-date (but saveIncludedStatesToLocalStorage usually builds it)
       const payload = JSON.stringify(this._map || {});
-      window.localStorage.setItem(c.includeStorageKey, payload);
-      if (this._debug) console.debug('[IncludedStates] wrote map to storage', this._map);
+      window.localStorage.setItem(this.storageKey, payload);
     } catch (e) {
-      c._logError('IncludedStates._writeStorageImmediate failed', e);
+      this.ctx?._logError?.('[IncludedStates] write failed', e);
     }
   }
 
@@ -93,249 +101,265 @@ export class IncludedStates {
     }, this._saveDelay);
   }
 
-  // ---------- Public API: load / save ----------
-
-  /**
-   * Build and save the map from current cart items.
-   * If immediate === true, write synchronously; else debounced.
-   */
-  saveIncludedStatesToLocalStorage(immediate = false) {
-    const c = this.ctx;
+  _emitChanged(payload) {
     try {
-      // build fresh map from current cart to avoid stale/undefined problems
-      const map = Object.create(null);
-      for (const it of c.cart) {
-        const key = c._normalizeIdKey(it && (it.name ?? it.id));
-        if (!key) continue;
-        // ensureItemIncluded will set item.included if undefined; we prefer explicit boolean
-        const included = (it.included !== undefined) ? Boolean(it.included) : Boolean(this.ensureItemIncluded(it));
-        map[key] = included;
-      }
-
-      this._map = map;
-
-      if (this._debug) console.debug('[IncludedStates] save map prepared', this._map);
-
-      if (immediate) {
-        this._writeStorageImmediate();
-      } else {
-        this._scheduleWrite();
-      }
+      this.eventBus?.emit?.('included:changed', payload);
     } catch (e) {
-      c._logError('IncludedStates.saveIncludedStatesToLocalStorage failed', e);
+      this.ctx?._logError?.('[IncludedStates] emit failed', e);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
   /**
-   * Load persisted map and apply to cart items.
-   * This sets item.included for all items (default true when not present in map).
+   * Get included flag for id. Falls back to defaultIncluded if absent.
+   * @param {string} id
+   * @returns {boolean}
    */
-  loadIncludedStatesFromLocalStorage() {
-    const c = this.ctx;
-    try {
-      const rawMap = this._readStorageMap(); // populates this._map
-      let changed = false;
-
-      // Apply to items: set item.included to saved value or default true
-      for (const it of c.cart) {
-        const key = c._normalizeIdKey(it && (it.name ?? it.id));
-        if (!key) continue;
-        const saved = Object.prototype.hasOwnProperty.call(this._map, key) ? Boolean(this._map[key]) : true;
-        if (it.included !== saved) {
-          if (this._debug) console.debug(`[IncludedStates] applying loaded included for ${key}:`, saved);
-          it.included = saved;
-          try { c._pendingChangedIds.add(String(key)); } catch (_) {}
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        try {
-          // reindex so other systems see updated flags
-          c._rebuildIndex?.();
-        } catch (e) {
-          c._logError('IncludedStates.loadIncludedStatesFromLocalStorage _rebuildIndex failed', e);
-        }
-      }
-
-      // update master checkbox visual (don't force full UI rerender here)
-      try {
-        this.updateMasterSelectState();
-      } catch (_) {}
-
-      if (this._debug) console.debug('[IncludedStates] load complete, changed=', changed);
-
-      return changed;
-    } catch (e) {
-      c._logError('_loadIncludedStatesFromLocalStorage failed', e);
-      return false;
-    }
+  get(id) {
+    const key = this._normalizeIdKey(id);
+    if (!key) return this.defaultIncluded;
+    const map = this._readStorageMap();
+    return Object.prototype.hasOwnProperty.call(map, key) ? !!map[key] : this.defaultIncluded;
   }
 
-  // ---------- Single-item helpers ----------
-
   /**
-   * Ensure item.included is set and return boolean.
-   * - If item.included already defined -> use it
-   * - Else consult loaded map (cached), if none -> default true.
-   * Also sets item.included to avoid undefined states.
+   * Alias for compatibility with old code.
+   * @param {any} item
+   * @returns {boolean}
    */
   ensureItemIncluded(item) {
-    const c = this.ctx;
     if (!item) return false;
-
-    if (item.included !== undefined) return Boolean(item.included);
-
-    // read or initialize storage map
-    const map = this._readStorageMap();
-
-    const key = c._normalizeIdKey(item && (item.name ?? item.id));
-    if (!key) {
-      // fallback default
-      item.included = true;
-      return true;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      item.included = Boolean(map[key]);
-    } else {
-      // default include for unknown keys
-      item.included = true;
-    }
-
-    if (this._debug) console.debug(`[IncludedStates] ensureItemIncluded(${key}) =>`, item.included);
-    return Boolean(item.included);
+    const key = this._normalizeIdKey(item?.name ?? item?.id);
+    const val = this.get(key);
+    // It’s allowed to set the flag on item when asked for it (no cart logic duplication)
+    item.included = !!val;
+    return !!val;
   }
 
   /**
-   * Toggle single item's included state.
-   * Changes only that item, updates internal map and persists (debounced by default).
+   * Set included flag for id.
+   * @param {string} id
+   * @param {boolean} included
+   * @param {object} [opts]
+   * @param {boolean} [opts.immediateSave]
+   * @param {string}  [opts.reason]
+   * @returns {boolean} changed
    */
-  toggleInclude(id, included, { sourceRow = null, immediateSave = false } = {}) {
+  set(id, included, opts = {}) {
+    const key = this._normalizeIdKey(id);
+    if (!key) return false;
+
+    const map = this._readStorageMap();
+    const next = !!included;
+    const prev = Object.prototype.hasOwnProperty.call(map, key) ? !!map[key] : this.defaultIncluded;
+
+    if (prev === next) return false;
+
+    map[key] = next;
+    this._map = map;
+
+    if (opts.immediateSave) this._writeStorageImmediate();
+    else this._scheduleWrite();
+
+    this._emitChanged({ id: key, included: next, prev, reason: opts.reason || 'set' });
+
+    return true;
+  }
+
+  /**
+   * Apply included state to provided items (sets item.included).
+   * @param {Array<any>} items
+   * @returns {boolean} whether anything changed on items
+   */
+  applyToItems(items = []) {
+    const arr = Array.isArray(items) ? items : [];
+    let changed = false;
+
+    for (const it of arr) {
+      const key = this._normalizeIdKey(it?.name ?? it?.id);
+      if (!key) continue;
+      const v = this.get(key);
+      if (it.included !== v) {
+        it.included = v;
+        changed = true;
+      }
+    }
+
+    if (this._debug) {
+      // eslint-disable-next-line no-console
+      console.debug('[IncludedStates] applyToItems changed=', changed);
+    }
+    return changed;
+  }
+
+  /**
+   * Save current included state from items into the map.
+   * @param {Array<any>} items
+   * @param {boolean} [immediate]
+   */
+  syncFromItems(items = [], immediate = false) {
+    const arr = Array.isArray(items) ? items : [];
+    const map = Object.create(null);
+
+    for (const it of arr) {
+      const key = this._normalizeIdKey(it?.name ?? it?.id);
+      if (!key) continue;
+      map[key] = it?.included !== undefined ? !!it.included : this.defaultIncluded;
+    }
+
+    this._map = map;
+
+    if (immediate) this._writeStorageImmediate();
+    else this._scheduleWrite();
+  }
+
+  /**
+   * Toggle included flag for id.
+   */
+  toggle(id, opts = {}) {
+    const key = this._normalizeIdKey(id);
+    const next = !this.get(key);
+    return this.set(key, next, { ...opts, reason: opts.reason || 'toggle' });
+  }
+
+  /**
+   * Toggle all items included state (updates items + map).
+   * Does NOT call any UI updates — caller orchestrates UI.
+   * @param {Array<any>} items
+   * @param {boolean} val
+   * @param {object} [opts]
+   * @param {boolean} [opts.immediateSave]
+   * @returns {boolean} changed
+   */
+  setAll(items = [], val, opts = {}) {
+    const arr = Array.isArray(items) ? items : [];
+    const next = !!val;
+
+    const map = this._readStorageMap();
+    let changed = false;
+
+    for (const it of arr) {
+      const key = this._normalizeIdKey(it?.name ?? it?.id);
+      if (!key) continue;
+
+      const prevItem = it.included !== undefined ? !!it.included : this.get(key);
+      if (prevItem !== next) changed = true;
+
+      it.included = next;
+      map[key] = next;
+    }
+
+    this._map = map;
+
+    if (opts.immediateSave) this._writeStorageImmediate();
+    else this._scheduleWrite();
+
+    if (changed) this._emitChanged({ all: true, included: next, reason: 'setAll' });
+
+    return changed;
+  }
+
+  /**
+   * Count selected (included=true) items.
+   * @param {Array<any>} items
+   * @returns {number}
+   */
+  countSelected(items = []) {
+    const arr = Array.isArray(items) ? items : [];
+    let count = 0;
+    for (const it of arr) {
+      const key = this._normalizeIdKey(it?.name ?? it?.id);
+      if (!key) continue;
+      const v = it?.included !== undefined ? !!it.included : this.get(key);
+      if (v) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Update master checkbox visual state (purely UI).
+   * Reads ctx.masterSelect + ctx.cart.
+   */
+  updateMasterSelectState() {
     const c = this.ctx;
-    try {
-      const normalized = String(c._normalizeIdKey(id));
-      const item = c._getCartItemById(normalized);
+    const ms = c?.masterSelect;
+    if (!ms) return;
 
-      if (!item) {
-        console.warn(`[IncludedStates] toggleInclude: item not found for id="${normalized}"`);
-        return false;
-      }
+    const cart = Array.isArray(c?.cart) ? c.cart : [];
+    if (cart.length === 0) {
+      ms.checked = false;
+      ms.indeterminate = false;
+      ms.dataset.state = 'none';
+      return;
+    }
 
-      const now = Boolean(included);
-      if (this._debug) console.debug(`[IncludedStates] toggleInclude: ${normalized} ${item.included} -> ${now}`);
+    let included = 0;
+    for (const it of cart) {
+      const v = it?.included !== undefined ? !!it.included : this.ensureItemIncluded(it);
+      if (v) included++;
+    }
 
-      // change model
-      item.included = now;
-
-      try { c._pendingChangedIds.add(normalized); } catch (_) {}
-
-      // sync UI row if present
-      if (sourceRow) {
-        try { c.rowSync.syncRowControls(sourceRow, item); } catch (syncErr) {
-          c._logError(`[IncludedStates] toggleInclude: syncRowControls failed for "${normalized}"`, syncErr);
-        }
-      }
-
-      // update internal map for this key and schedule save
-      this._readStorageMap(); // ensure _map exists
-      this._map[normalized] = now;
-
-      // persist (debounced by default)
-      this.saveIncludedStatesToLocalStorage(immediateSave);
-
-      // update master checkbox visual immediately
-      try { this.updateMasterSelectState(); } catch (err) { c._logError('updateMasterSelectState failed', err); }
-
-      if (this._debug) {
-        console.debug('[IncludedStates] toggleInclude: map after toggle', this._map);
-      }
-
-      return true;
-    } catch (e) {
-      c._logError('toggleInclude failed', e);
-      return false;
+    if (included === 0) {
+      ms.checked = false;
+      ms.indeterminate = false;
+      ms.dataset.state = 'none';
+    } else if (included === cart.length) {
+      ms.checked = true;
+      ms.indeterminate = false;
+      ms.dataset.state = 'full';
+    } else {
+      ms.checked = false;
+      ms.indeterminate = true;
+      ms.dataset.state = 'mixed';
     }
   }
 
   /**
-   * Toggle all items included state.
-   * Persists map and triggers UI update via CartUI.
+   * Backward-compatible wrapper for old CartDOMRefs/CartUI code.
+   * @param {boolean} val
+   * @returns {boolean}
    */
   toggleAllIncluded(val) {
     const c = this.ctx;
-    try {
-      const v = Boolean(val);
-      const map = Object.create(null);
-
-      for (const it of c.cart) {
-        it.included = v;
-        const key = c._normalizeIdKey(it && (it.name ?? it.id));
-        if (key) map[key] = v;
-        try { c._pendingChangedIds.add(String(key)); } catch (_) {}
-      }
-
-      this._map = map;
-
-      // persist quickly (do immediate write to avoid perceivable lag)
-      this.saveIncludedStatesToLocalStorage(true);
-
-      // let CartUI orchestrate a full update (re-render etc.)
-      try { c.updateCartUI(); } catch (e) { c._logError('toggleAllIncluded: updateCartUI failed', e); }
-
-      if (this._debug) console.debug('[IncludedStates] toggleAllIncluded ->', v);
-      return true;
-    } catch (e) {
-      c._logError('_toggleAllIncluded failed', e);
-      return false;
-    }
+    const cart = Array.isArray(c?.cart) ? c.cart : [];
+    return this.setAll(cart, !!val, { immediateSave: true });
   }
 
-  // ---------- Master checkbox visual state ----------
-
-  updateMasterSelectState() {
+  /**
+   * Backward-compatible wrapper for old GridListeners code.
+   * @param {string} id
+   * @param {boolean} included
+   * @param {object} [opts]
+   * @returns {boolean}
+   */
+  toggleInclude(id, included, opts = {}) {
     const c = this.ctx;
-    const ms = c.masterSelect;
-    if (!ms) return;
+    const key = this._normalizeIdKey(id);
+    const item = typeof c?._getCartItemById === 'function' ? c._getCartItemById(key) : null;
 
-    try {
-      const total = c.cart.length;
-      if (total === 0) {
-        ms.checked = false;
-        ms.indeterminate = false;
-        ms.dataset.state = 'none';
-        return;
-      }
+    const changed = this.set(key, !!included, { immediateSave: !!opts.immediateSave, reason: 'toggleInclude' });
+    if (item) item.included = !!included;
 
-      // count included (ensure each item has a defined included)
-      let included = 0;
-      for (const it of c.cart) {
-        if (this.ensureItemIncluded(it)) included++;
-      }
-
-      if (included === 0) {
-        ms.checked = false;
-        ms.indeterminate = false;
-        ms.dataset.state = 'none';
-      } else if (included === total) {
-        ms.checked = true;
-        ms.indeterminate = false;
-        ms.dataset.state = 'full';
-      } else {
-        ms.checked = false;
-        ms.indeterminate = true;
-        ms.dataset.state = 'mixed';
-      }
-
-      if (this._debug) console.debug(`[IncludedStates] master state: ${ms.dataset.state} (${included}/${total})`);
-    } catch (e) {
-      c._logError('updateMasterSelectState failed', e);
-    }
+    return changed;
   }
 
-  // optional utility: expose current map (useful for debugging/tests)
+  saveIncludedStatesToLocalStorage(immediate = false) {
+    const c = this.ctx;
+    const cart = Array.isArray(c?.cart) ? c.cart : [];
+    this.syncFromItems(cart, !!immediate);
+  }
+
+  loadIncludedStatesFromLocalStorage() {
+    const c = this.ctx;
+    const cart = Array.isArray(c?.cart) ? c.cart : [];
+    return this.applyToItems(cart);
+  }
+
   getMapSnapshot() {
-    this._readStorageMap();
-    return Object.assign({}, this._map);
+    const map = this._readStorageMap();
+    return { ...map };
   }
 }

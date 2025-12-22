@@ -1,112 +1,130 @@
-import { pluralize } from '../../utils.js';
+import { pluralize, formatPrice } from '../../utils.js';
+
 /**
- * TotalsAndBadges — расчёт totals, обновление бейджей и miniCart render
+ * TotalsAndBadges — totals calculation + badges/totals UI updates.
  * ctx — CartUI
  */
 export class TotalsAndBadges {
   constructor(ctx) {
-	this.shopMatic = ctx.shopMatic;
+    this.shopMatic = ctx.shopMatic;
+    this.foxEngine = this.shopMatic.foxEngine;
     this.ctx = ctx;
-	this.goodsWordsArr = ['товар', 'товара', 'товаров'];
+    this.goodsWordsArr = ['товар', 'товара', 'товаров'];
   }
 
   calculateTotals() {
-    const c = this.ctx;
+    const { cart, included } = this.ctx;
     let totalCount = 0;
     let totalSum = 0;
-    for (const it of c.cart) {
-      let included = c.included.ensureItemIncluded(it);
-      if (included === false) continue; // skip excluded
-      totalCount += Number(it.qty || 0);
-      totalSum += Number(it.price || 0) * Number(it.qty || 0);
+
+    for (const it of cart) {
+      const id = String(it?.name ?? it?.id ?? '').trim();
+      const isIncluded =
+        it?.included !== undefined
+          ? !!it.included
+          : (included?.get ? included.get(id) : true);
+
+      if (!isIncluded) continue;
+
+      const qty = Number(it?.qty || 0);
+      const price = Number(it?.price || 0);
+
+      totalCount += qty;
+      totalSum += price * qty;
     }
+
     return { totalCount, totalSum };
   }
 
   updateBadges(totalCount) {
-    const c = this.ctx;
-    try {
-      if (c.headerCartNum) {
-        c.headerCartNum.textContent = String(totalCount);
-		$("#cartSummaryWord").html(pluralize(totalCount || 0, this.goodsWordsArr));
-        c.headerCartNum.style.display = totalCount > 0 ? 'inline-flex' : 'none';
-        c.headerCartNum.setAttribute('aria-hidden', totalCount > 0 ? 'false' : 'true');
+    const { ctx, shopMatic } = this;
+    const { headerCartNum, mobileCartNum } = ctx;
 
-		if(this.shopMatic.deviceUtil.isMobile) {
-			if (c.mobileCartNum) {
-			  c.mobileCartNum.textContent = String(totalCount);
-			  c.mobileCartNum.style.display = totalCount > 0 ? 'inline-flex' : 'none';
-			  c.mobileCartNum.setAttribute('aria-hidden', totalCount > 0 ? 'false' : 'true');
-			}
-			
-			document.getElementById('mobileProductCount').innerHTML = String(totalCount);
-			document.getElementById('mobileProductWord'). innerHTML = pluralize(totalCount || 0, this.goodsWordsArr);
-		}
+    try {
+      if (headerCartNum) {
+        headerCartNum.textContent = String(totalCount);
+        $("#cartSummaryWord").html(pluralize(totalCount || 0, this.goodsWordsArr));
+        headerCartNum.style.display = totalCount > 0 ? 'inline-flex' : 'none';
+        headerCartNum.setAttribute('aria-hidden', totalCount > 0 ? 'false' : 'true');
+      }
+
+      if (shopMatic.deviceUtil.isMobile) {
+        if (mobileCartNum) {
+          mobileCartNum.textContent = String(totalCount);
+          mobileCartNum.style.display = totalCount > 0 ? 'inline-flex' : 'none';
+          mobileCartNum.setAttribute('aria-hidden', totalCount > 0 ? 'false' : 'true');
+        }
+
+        const mobileProductCount = document.getElementById('mobileProductCount');
+        const mobileProductWord = document.getElementById('mobileProductWord');
+        if (mobileProductCount) mobileProductCount.textContent = String(totalCount);
+        if (mobileProductWord) mobileProductWord.innerHTML = pluralize(totalCount || 0, this.goodsWordsArr);
       }
     } catch (e) {
-      c._logError('headerCartNum update failed', e);
+      ctx._logError('header/mobile badge update failed', e);
     }
 
     try {
-      if (c.miniCart && typeof c.miniCart.updateHeader === 'function') {
-        c.miniCart.updateHeader(totalCount);
-      }
+      if (ctx.miniCart?.updateHeader) ctx.miniCart.updateHeader(totalCount);
     } catch (e) {
-      c._logError('miniCart.updateHeader failed', e);
+      ctx._logError('miniCart.updateHeader failed', e);
     }
   }
 
   async renderMiniCart() {
-    const c = this.ctx;
+    const { ctx } = this;
     try {
-      if (c.miniCart && typeof c.miniCart.render === 'function') {
-        const maybe = c.miniCart.render(c.cart);
-        if (c._isThenable(maybe)) {
-          await maybe.catch((err) => c._logError('miniCart.render failed', err));
-        }
-      }
+      if (!ctx.miniCart?.render) return;
+      const maybe = ctx.miniCart.render(ctx.cart);
+      if (ctx._isThenable(maybe)) await maybe.catch((err) => ctx._logError('miniCart.render failed', err));
     } catch (e) {
-      c._logError('miniCart.render threw', e);
+      ctx._logError('miniCart.render threw', e);
     }
   }
 
   updateTotalsUI(totalCount, totalSum) {
-    const c = this.ctx;
-    try {
-      if (c.cartTotal) c.cartTotal.textContent = c._formatPrice(totalSum);
-      if (c.miniCartTotal) c.miniCartTotal.textContent = c._formatPrice(totalSum);
-      if (c.cartCountInline) c.cartCountInline.textContent = String(totalCount);
-    } catch (e) {
-      c._logError('totals update failed', e);
-    }
+    const { ctx } = this;
+    ctx._addMobileCheckoutBlock();
 
-    // update master select state visual
-    c.included.updateMasterSelectState();
-	document.getElementById('mobileTotalPrice').innerHTML = c._formatPrice(totalSum);
+    try {
+      if (ctx.cartTotal) ctx.cartTotal.textContent = formatPrice(totalSum);
+      if (ctx.miniCartTotal) ctx.miniCartTotal.textContent = formatPrice(totalSum);
+      if (ctx.cartCountInline) ctx.cartCountInline.textContent = String(totalCount);
+
+      ctx.included?.updateMasterSelectState?.();
+
+      const mobileTotalPrice = document.getElementById('mobileTotalPrice');
+      if (mobileTotalPrice) mobileTotalPrice.innerHTML = formatPrice(totalSum);
+    } catch (e) {
+      ctx._logError('totals update failed', e);
+    }
   }
 
   updateFavButtonState(row, id) {
-    const c = this.ctx;
-    if (!row || !id || !c.favorites) return;
+    const { ctx } = this;
+    if (!row || !id || !ctx.favorites) return;
+
     try {
-      const favBtn = row.querySelector && row.querySelector('.fav-btn');
+      const favBtn = row.querySelector('.fav-btn');
       if (!favBtn) return;
+
       let isFav = false;
       try {
-        if (typeof c.favorites.isFavorite === 'function') {
-          isFav = !!c.favorites.isFavorite(id);
-        } else if (Array.isArray(c.favorites.getAll && c.favorites.getAll())) {
-          isFav = c.favorites.getAll().indexOf(id) >= 0;
+        if (typeof ctx.favorites.isFavorite === 'function') {
+          isFav = !!ctx.favorites.isFavorite(id);
+        } else if (Array.isArray(ctx.favorites.getAll && ctx.favorites.getAll())) {
+          isFav = ctx.favorites.getAll().includes(id);
         }
-      } catch (e) {
+      } catch {
         isFav = false;
       }
+
       favBtn.classList.toggle('is-fav', isFav);
       favBtn.setAttribute('aria-pressed', String(isFav));
-      const icon = favBtn.querySelector && favBtn.querySelector('i');
+      const icon = favBtn.querySelector('i');
       if (icon) icon.classList.toggle('active', isFav);
     } catch (e) {
-      c._logError('_updateFavButtonState failed', e);
+      ctx._logError('_updateFavButtonState failed', e);
     }
   }
 }

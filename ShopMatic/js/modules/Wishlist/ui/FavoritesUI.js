@@ -3,7 +3,7 @@
  * @author Calista Verner
  * Version: 1.0.0
  */
-export class WishlistModule {
+export class FavoritesUI {
   constructor(opts = {}) {
     this.globalConfig = (typeof window !== 'undefined' && window.FAV_API_CONFIG) ? window.FAV_API_CONFIG : {};
     this.foxEngine = (typeof window !== 'undefined' && window.foxEngine) ? window.foxEngine : (opts.foxEngine || null);
@@ -163,15 +163,14 @@ export class WishlistModule {
     const ok = await this._appleRemoveAnimation(node).catch(()=>true);
     try { delete node.dataset.removing; } catch(_) {}
     // pulse counter
-    try {
+
       if (this.countEl && typeof this.countEl.animate === 'function') {
         this.countEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 360, easing: 'cubic-bezier(.2,.9,.2,1)' });
       } else if (this.countEl) {
         this.countEl.style.transition = 'transform 180ms ease';
         this.countEl.style.transform = 'scale(1.06)';
-        setTimeout(()=> { if (this.countEl) this.countEl.style.transform = ''; }, 180);
+        setTimeout(()=> { if (this.countEl) this.countEl.style.transform = ''; }, 80);
       }
-    } catch (_) {}
     return ok;
   }
 
@@ -204,15 +203,6 @@ export class WishlistModule {
       const n = set.size;
       this.countEl.textContent = n > 0 ? `В избранном: ${n}` : 'В избранном пусто';
     } catch (e) { this._error('recalcCount failed', e); }
-  }
-
-  _dispatchLocalStorageEvent(key, oldValue, newValue) {
-    try {
-      const ev = new StorageEvent('storage', { key, oldValue, newValue, url: location.href, storageArea: localStorage });
-      window.dispatchEvent(ev);
-    } catch (e) {
-      try { window.dispatchEvent(new CustomEvent('favorites:changed', { detail: { key, oldValue, newValue } })); } catch(_) {}
-    }
   }
 
   normalizeFavoritesArray(arr) {
@@ -266,27 +256,6 @@ export class WishlistModule {
         return true;
       } catch (e) { this._error('API removeFromFav failed', e); }
     }
-
-    // fallback localStorage
-    try {
-      const raw = localStorage.getItem(this.config.storageKey);
-      if (!raw) {
-        await this.removeNodeById(key);
-        return true;
-      }
-      let arr = JSON.parse(raw) || [];
-      arr = arr.filter(x => this._normalizeKey(x) !== this._normalizeKey(key));
-      const old = localStorage.getItem(this.config.storageKey);
-      localStorage.setItem(this.config.storageKey, JSON.stringify(arr));
-      this._dispatchLocalStorageEvent(this.config.storageKey, old, JSON.stringify(arr));
-      this._log('removed from localStorage', key);
-      await this.removeNodeById(key);
-      return true;
-    } catch (e) {
-      this._error('removeFromFav fallback failed', e);
-      this.notify(this.config.ui.removedError, { type: 'error' });
-      return false;
-    }
   }
 
   async optimisticRemoveUI(id, node) {
@@ -315,107 +284,7 @@ export class WishlistModule {
   }
 
   /* ---------- availability refresh (cart updates) ---------- */
-  scheduleAvailabilityRefresh(delay = this.config.availabilityDebounceMs) {
-    if (this._cartUpdateTimer) clearTimeout(this._cartUpdateTimer);
-    this._cartUpdateTimer = setTimeout(() => {
-      this._cartUpdateTimer = null;
-      this.updateAllCardAvailability();
-    }, delay);
-  }
 
-  updateAllCardAvailability() {
-    try {
-      if (!this.grid) return;
-      const cards = Array.from(this.grid.querySelectorAll('[data-product-id]'));
-      if (!cards.length) return;
-
-      // use integrated card API if present
-      const cardApi = this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.card ? this.foxEngine.shopMatic.card : null;
-      const useSync = cardApi && typeof cardApi._syncCardControlsState === 'function';
-
-      // build cart map
-      let cartItems = [];
-      try {
-        if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.cart) {
-          const cart = this.foxEngine.shopMatic.cart;
-          if (typeof cart.getCart === 'function') cartItems = cart.getCart() || [];
-          else if (Array.isArray(cart.cart)) cartItems = cart.cart;
-        }
-      } catch(_) { cartItems = []; }
-      const cartMap = new Map();
-      for (const it of cartItems) {
-        try {
-          const k = this._normalizeKey(it.name ?? it.id ?? it.productId ?? it.cartId ?? '');
-          cartMap.set(k, Number(it.qty || it.quantity || 0));
-        } catch (_) {}
-      }
-
-      for (const card of cards) {
-        try {
-          if (useSync) {
-            try { cardApi._syncCardControlsState(card); continue; } catch (e) { /* fallback */ }
-          }
-
-          const pidRaw = card.getAttribute('data-product-id') || card.getAttribute('data-id') || card.dataset?.productId || '';
-          const pid = this._normalizeKey(pidRaw);
-
-          // find stock via productService if available
-          let stock = NaN;
-          try {
-            if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.productService && typeof this.foxEngine.shopMatic.productService.findById === 'function') {
-              const prod = this.foxEngine.shopMatic.productService.findById(pidRaw) || this.foxEngine.shopMatic.productService.findById(pid) || null;
-              if (prod) stock = Number(prod.stock ?? prod._stock ?? prod.count ?? 0);
-            }
-          } catch (_) { stock = NaN; }
-          if (!Number.isFinite(stock)) {
-            const ds = card.getAttribute && card.getAttribute('data-stock');
-            stock = ds !== null ? Number(ds) : NaN;
-          }
-          if (!Number.isFinite(stock)) stock = 0;
-
-          const inCartQty = cartMap.get(pid) || 0;
-          const available = Math.max(0, Number(stock) - Number(inCartQty));
-
-          const buyBtn = card.querySelector && (card.querySelector('[data-role="buy"], [data-action="buy"], .btn-buy'));
-          const incrBtn = card.querySelector && (card.querySelector('[data-role="qty-plus"], .qty-incr, [data-action="qty-incr"]'));
-          const decrBtn = card.querySelector && (card.querySelector('[data-role="qty-minus"], .qty-decr, [data-action="qty-decr"]'));
-          const qtyInput = card.querySelector && (card.querySelector('[data-role="qty-input"], .qty-input, input[type="number"]'));
-          const leftNum = card.querySelector && card.querySelector('.leftNum');
-
-          if (leftNum) leftNum.textContent = String(available);
-          if (buyBtn) {
-            buyBtn.disabled = available <= 0;
-            buyBtn.toggleAttribute && buyBtn.toggleAttribute('aria-disabled', available <= 0);
-          }
-          if (incrBtn && qtyInput) {
-            const currentVal = Math.max(0, parseInt(qtyInput.value || '0', 10));
-            const disableIncr = !available || currentVal >= available;
-            incrBtn.disabled = disableIncr;
-            incrBtn.toggleAttribute && incrBtn.toggleAttribute('aria-disabled', disableIncr);
-          }
-          if (qtyInput) {
-            if (!available) {
-              qtyInput.disabled = true;
-              qtyInput.setAttribute && qtyInput.setAttribute('aria-disabled', 'true');
-              qtyInput.value = '0';
-            } else {
-              qtyInput.disabled = false;
-              qtyInput.removeAttribute && qtyInput.removeAttribute('aria-disabled');
-              let val = parseInt(qtyInput.value || '1', 10);
-              val = isNaN(val) || val < 1 ? 1 : Math.min(val, available);
-              qtyInput.value = String(val);
-            }
-          }
-          if (decrBtn && qtyInput) {
-            const v = parseInt(qtyInput.value || '0', 10);
-            const disabled = v <= 1;
-            decrBtn.disabled = disabled;
-            decrBtn.toggleAttribute && decrBtn.toggleAttribute('aria-disabled', disabled);
-          }
-        } catch (e) { this._error('updateAllCardAvailability: card update failed', e); }
-      }
-    } catch (e) { this._error('updateAllCardAvailability failed', e); }
-  }
 
   _onStorageEvent(e) {
     try {
@@ -438,99 +307,38 @@ export class WishlistModule {
   }
 
   _onCartUpdated(/*ev*/) {
-    // debounce to batch frequent updates
-    this.scheduleAvailabilityRefresh(this.config.availabilityDebounceMs);
   }
 
   /* ---------- render ---------- */
-  async renderGrid() {
-    if (!this.grid) return;
-    this.grid.innerHTML = '';
-    let items = [];
-    try {
-      items = (this.foxEngine && this.foxEngine.shopMatic && typeof this.foxEngine.shopMatic.getFavorites === 'function')
-        ? this.foxEngine.shopMatic.getFavorites()
-        : [];
-    } catch (e) { this._error('renderGrid fetchFavorites failed', e); items = []; }
+	async renderGrid() {
+	  const grid = this.grid;
+	  if (!grid) return;
 
-    const dedup = new Map();
-    for (const p of items) {
-      const key = this._normalizeKey(p && (p.name || p._missingId || p.id || p.productId));
-	  //let product = await this.foxEngine.shopMatic.productService.fetchById(key);
-	  //console.log(product.name);
-	  //if(!product.name) {
-	 //  console.log('Removing unexisting product '+key+' from wishlist!');
-	//	  this.removeFromFav(key);
-	  //}
-      if (!key) continue;
-      if (!dedup.has(key)) dedup.set(key, p);
-      else {
-        const existing = dedup.get(key);
-        existing.qty = Math.max(existing.qty || 1, p.qty || existing.qty || 1);
-      }
-    }
-    const uniqueItems = Array.from(dedup.values());
+	  grid.innerHTML = '';
 
-    if (this.countEl) this.countEl.textContent = (uniqueItems && uniqueItems.length) ? `В избранном: ${uniqueItems.length}` : 'В избранном пусто';
+	  const sm = this.foxEngine.shopMatic;
 
-    if (!uniqueItems || uniqueItems.length === 0) {
-      this.grid.innerHTML = `<div class="empty" role="status"><h3>${this.config.ui.emptyTitle}</h3><p>${this.config.ui.emptyBody}</p></div>`;
-      return;
-    }
+	  const itemsRaw = sm.getFavorites() || [];
+	  const items = Array.isArray(itemsRaw) ? itemsRaw : [];
 
-    // try integrated renderer first
-    try {
-      if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.renderer && typeof this.foxEngine.shopMatic.renderer._renderCartVertical === 'function') {
-        this.foxEngine.shopMatic.renderer._renderCartVertical(items, this.grid);
-      } else {
-        // fallback simple cards
-        const frag = document.createDocumentFragment();
-        for (const it of uniqueItems) {
-          const id = this._normalizeIdRaw(it.name || it._missingId || '');
-          const card = document.createElement('div');
-          card.className = 'wish-card';
-          card.setAttribute('data-product-id', id);
-          card.innerHTML = `
-            <div class="wish-thumb"><img src="${this._escapeAttr(it.picture || '/assets/no-image.png')}" alt="${this._escapeAttr(it.fullname || it.name || id)}" loading="lazy"></div>
-            <div class="wish-body">
-              <div class="wish-name">${this._escapeHtml(it.fullname || it.name || id)}</div>
-              <div class="wish-meta">${(it.price != null) ? this._escapeHtml(String(it.price) + ' ₽') : ''}</div>
-              <button class="wish-remove" data-action="fav-remove" aria-label="Удалить">Удалить</button>
-            </div>`;
-          frag.appendChild(card);
-        }
-        this.grid.appendChild(frag);
-      }
-    } catch (e) { this._error('renderGrid renderer failed', e); }
+	  const count = items.length;
 
-    // bind card delegation (if renderer created cards)
-    try {
-      if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.card && typeof this.foxEngine.shopMatic.card._bindCardDelegation === 'function') {
-        this.foxEngine.shopMatic.card._bindCardDelegation(this.grid);
-      }
-    } catch (_) {}
+	  if (this.countEl) {
+		this.countEl.textContent = count
+		  ? `В избранном: ${count}`
+		  : 'В избранном пусто';
+	  }
 
-    // small delay to sync states and availability
-    setTimeout(() => {
-      for (const card of this.grid.querySelectorAll('[data-product-id]')) {
-        try {
-          if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.card && typeof this.foxEngine.shopMatic.card._syncCardControlsState === 'function') {
-            this.foxEngine.shopMatic.card._syncCardControlsState(card);
-          }
-          const pid = card.getAttribute('data-product-id');
-          if (this.foxEngine && this.foxEngine.shopMatic && this.foxEngine.shopMatic.renderer && typeof this.foxEngine.shopMatic.renderer.updateProductCardFavState === 'function') {
-            this.foxEngine.shopMatic.renderer.updateProductCardFavState(this.grid, pid, (this.foxEngine.shopMatic.isFavorite && this.foxEngine.shopMatic.isFavorite(pid)));
-          }
-        } catch (_) {}
-      }
-      this.scheduleAvailabilityRefresh(60);
-    }, 300);
-  }
+	  if (!count) {
+		grid.innerHTML = `<div class="empty" role="status">
+		  <h3>${this.config.ui.emptyTitle}</h3>
+		  <p>${this.config.ui.emptyBody}</p>
+		</div>`;
+		return;
+	  }  
+	   await sm.card.renderCardList(items, grid, "VERTICAL");
+	}
 
-  _escapeHtml(s='') {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-  _escapeAttr(s=''){ return this._escapeHtml(s); }
 
   /* ---------- UI helpers ---------- */
   _setButtonLoading(btn, loading) {
@@ -635,8 +443,6 @@ export class WishlistModule {
       }
     };
     if (this.grid) this.grid.addEventListener('click', this._gridClickHandler);
-
-    // initial render
     this.refresh(true);
   }
 
