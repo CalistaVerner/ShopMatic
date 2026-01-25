@@ -76,8 +76,8 @@ header.page__head p {
 
 /* top controls */
 .controls {
-    display: block;
     gap: 8px;
+    display: flex;
     align-items: center;
 }
 
@@ -87,19 +87,6 @@ header.page__head p {
 }
 
 .controls > .wishListBtn:hover {
-}
-
-.btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 0;
-    background: #111827;
-    color: #fff;
-    font-weight: 700;
-    cursor: pointer;
 }
 
 .btn--ghost {

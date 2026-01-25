@@ -1,14 +1,7 @@
 /**
- * Catalog module encapsulates all logic related to displaying and filtering the
- * product list. It loads products, categories and brands from the underlying
- * ProductService, populates the filter controls, renders product cards via
- * Renderer and keeps card controls and favorite state in sync.
+ * CatalogController — catalog display + filters orchestration.
  * @author Calista Verner
  * @date [13.11.25]
- */
-/**
- * Catalog module: отображение и фильтрация списка товаров.
- * Загружает товары, категории и бренды, управляет фильтрами и рендером карточек.
  */
 import { deepEqual } from "../utils.js";
 import { FilterController } from './FilterController.js';
@@ -39,10 +32,7 @@ export class CatalogController {
 
     this.shop = shop;
     this.eventBus = shop.eventBus;
-    this.opts = {
-      rootId, catFilterId, brandFilterId, searchId, sortId, searchBtnId, productsCountId,
-      debounceMs
-    };
+    this.opts = { rootId, catFilterId, brandFilterId, searchId, sortId, searchBtnId, productsCountId, debounceMs };
 
     this.root = null;
     this.catFilter = null;
@@ -59,6 +49,7 @@ export class CatalogController {
     this._productCache = new ProductCache(() => this._getProductService());
     this._lastAppliedState = null;
     this._isInitializing = false;
+    this._selectorsInitialized = false;
 
     this._filterService = new CatalogFilterService();
   }
@@ -74,7 +65,7 @@ export class CatalogController {
         const val = i18n.t(key);
         if (val != null && val !== key) return val;
       }
-    } catch (e) {}
+    } catch {}
     return CatalogController.UI_MESSAGES[key] ?? fallback;
   }
 
@@ -83,7 +74,7 @@ export class CatalogController {
   }
 
   _setLocationHash(hash) {
-    location.hash = hash;
+    try { location.hash = hash; } catch {}
   }
 
   _showNotification(message) {
@@ -91,41 +82,39 @@ export class CatalogController {
       this.shop.notifications.show(message, {
         duration: this.shop.opts?.notificationDuration ?? 3000
       });
-    } catch (_) {
+    } catch {
       console.info('[CatalogController] notify:', message);
     }
   }
 
-	async init() {
-	  this._cacheDomElements();
-	  this._createHelpers();
+  async init() {
+    this._cacheDomElements();
+    this._createHelpers();
 
-	  const ps = this._getProductService();
-	  if (!ps) {
-		console.warn('[CatalogController] productService absent — модуль отключён');
-		return;
-	  }
+    const ps = this._getProductService();
+    if (!ps) {
+      console.warn('[CatalogController] productService absent — module disabled');
+      return;
+    }
 
-	  this._isInitializing = true;
+    this._isInitializing = true;
 
-	  // Заполняем селекты, но НЕ рендерим каталог
-	  await this.initSelectors('', '', { applyOnComplete: true });
+    await this.initSelectors('', '', { applyOnComplete: true });
 
-	  try {
-		if (typeof ps.loadProductsSimple === 'function') {
-		  await ps.loadProductsSimple();
-		  this._productCache.clear();
-		}
-	  } catch (err) {
-		console.error('CatalogController.init: loadProductsSimple failed', err);
-		this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Не удалось загрузить товары'));
-	  } finally {
-		this._isInitializing = false;
-	  }
+    try {
+      if (typeof ps.loadProductsSimple === 'function') {
+        await ps.loadProductsSimple();
+        this._productCache.clear();
+      }
+    } catch (err) {
+      console.error('CatalogController.init: loadProductsSimple failed', err);
+      this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Не удалось загрузить товары'));
+    } finally {
+      this._isInitializing = false;
+    }
 
-	  this._bindFilterEvents();
-	}
-
+    this._bindFilterEvents();
+  }
 
   async initSelectors(brand = '', category = '', options = {}) {
     const ps = this._getProductService();
@@ -155,57 +144,40 @@ export class CatalogController {
         : Promise.resolve()
     ]);
 
-    if (applyOnComplete) {
-      await this.applyFilters();
-    }
+    this._selectorsInitialized = true;
+
+    if (applyOnComplete) await this.applyFilters();
   }
 
-	async loadCatalog({ request = null } = {}) {
-	  const ps = this._getProductService();
-	  if (!ps) return;
+  async loadCatalog({ request = null } = {}) {
+    const ps = this._getProductService();
+    if (!ps) return;
 
-	  const selectedCategory = request?.category ?? '';
-	  const selectedBrand    = request?.brand ?? '';
-	  const searchValue      = request?.search ?? '';
-	  const sortValue        = request?.sort ?? '';
+    const selectedCategory = request?.category ?? '';
+    const selectedBrand = request?.brand ?? '';
+    const searchValue = request?.search ?? '';
+    const sortValue = request?.sort ?? '';
 
-	  this._setLocationHash('#page/catalog');
+    this._setLocationHash('#page/catalog');
 
-	  // 1) если селекты ещё не готовы — инициализируем, но без рендера
-	  if (!this._selectorsInitialized) {
-		await this.initSelectors(selectedBrand, selectedCategory, { applyOnComplete: true });
-	  }
+    if (!this._selectorsInitialized) {
+      await this.initSelectors(selectedBrand, selectedCategory, { applyOnComplete: true });
+    }
 
-	  // 2) прокидываем значения в DOM
-	  this._applyRequestToControls({
-		category: selectedCategory,
-		brand: selectedBrand,
-		search: searchValue,
-		sort: sortValue
-	  });
+    this._applyRequestToControls({ category: selectedCategory, brand: selectedBrand, search: searchValue, sort: sortValue });
 
-	  // 3) синхронизируем FilterController (для UI/кнопок и т.п.)
-	  if (this.filters) {
-		this.filters.setState(
-		  {
-			category: selectedCategory,
-			brand: selectedBrand,
-			search: searchValue,
-			sort: sortValue
-		  },
-		  { silent: true } // без повторного applyFilters
-		);
-	  }
+    if (this.filters) {
+      this.filters.setState(
+        { category: selectedCategory, brand: selectedBrand, search: searchValue, sort: sortValue },
+        { silent: true }
+      );
+    }
 
-	  // 4) и ТОЛЬКО теперь строим список по фильтрам
-	  await this.applyFilters();
-	}
-
+    await this.applyFilters();
+  }
 
   destroy() {
-    try {
-      this.filters?.unbind();
-    } catch (e) {}
+    try { this.filters?.unbind(); } catch {}
 
     this.root = null;
     this.catFilter = null;
@@ -215,6 +187,7 @@ export class CatalogController {
     this.searchBtn = null;
     this.resetBtn = null;
     this.productsCount = null;
+
     this.filters = null;
     this.view = null;
 
@@ -223,9 +196,7 @@ export class CatalogController {
   }
 
   _cacheDomElements() {
-    const {
-      rootId, catFilterId, brandFilterId, searchId, sortId, searchBtnId, productsCountId
-    } = this.opts;
+    const { rootId, catFilterId, brandFilterId, searchId, sortId, searchBtnId, productsCountId } = this.opts;
 
     this.root = document.getElementById(rootId) || null;
     this.catFilter = document.getElementById(catFilterId) || null;
@@ -261,7 +232,7 @@ export class CatalogController {
     if (!this.filters) return;
     this.filters.bind(() => {
       const state = this.filters.getState();
-      this.eventBus?.emit('filtersChanged', state);
+      this.eventBus?.emit?.('filtersChanged', state);
       this.applyFilters();
     });
   }
@@ -279,11 +250,8 @@ export class CatalogController {
 
     if (!this._productCache.hasData()) {
       try {
-        if (typeof ps.loadProducts === 'function') {
-          await ps.loadProducts();
-        } else if (typeof ps.loadProductsSimple === 'function') {
-          await ps.loadProductsSimple();
-        }
+        if (typeof ps.loadProducts === 'function') await ps.loadProducts();
+        else if (typeof ps.loadProductsSimple === 'function') await ps.loadProductsSimple();
       } catch (err) {
         console.warn('CatalogController: productService load failed', err);
         this._showNotification(this._msg('CATALOG_LOAD_ERROR'));
@@ -295,11 +263,7 @@ export class CatalogController {
   }
 
   _getCurrentFilterState() {
-    if (this.filters && typeof this.filters.getState === 'function') {
-      return this.filters.getState();
-    }
-
-    // fallback на прямое чтение DOM, если вдруг FilterController недоступен
+    if (this.filters && typeof this.filters.getState === 'function') return this.filters.getState();
     return {
       search: (this.search?.value || '').trim(),
       category: this.catFilter?.value || '',
@@ -308,84 +272,53 @@ export class CatalogController {
     };
   }
 
-  _shouldSkipApplyFilters(state) {
-    if (!this._lastAppliedState) return false;
-    return deepEqual(this._lastAppliedState, state);
+  async applyFilters() {
+    if (!this.view) return;
+
+    this.view.showLoading?.();
+
+    try {
+      await this._populateCacheIfNeeded();
+
+      const baseList = this._productCache.getAll() || [];
+      const list = Array.isArray(baseList) ? baseList : [];
+
+      const state = this._getCurrentFilterState();
+
+      if (this._lastAppliedState && deepEqual(this._lastAppliedState, state)) {
+        this.view.hideLoading?.();
+        return;
+      }
+
+      const finalList = this._filterService.apply(list, state);
+
+      if (!finalList.length) {
+        const message = this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
+        const hint = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
+        if (typeof this.view.renderEmpty === 'function') await this.view.renderEmpty({ message, hint, state });
+        else await this.view.render([]);
+      } else {
+        await this.view.render(finalList);
+      }
+
+      this._lastAppliedState = state;
+    } catch (err) {
+      console.error('CatalogController.applyFilters failed', err);
+      this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Ошибка при обработке каталога'));
+    } finally {
+      this.view.hideLoading?.();
+    }
   }
-
-	async applyFilters() {
-	  if (!this.view) return;
-
-	  this.view.showLoading?.();
-
-	  try {
-		await this._populateCacheIfNeeded();
-
-		const baseList = this._productCache.getAll() || [];
-		const list = Array.isArray(baseList) ? baseList : [];
-
-		const state = this._getCurrentFilterState();
-
-		if (this._lastAppliedState && deepEqual(this._lastAppliedState, state)) {
-		  this.view.hideLoading?.();
-		  return;
-		}
-
-		const finalList = this._filterService.apply(list, state);
-
-		if (!finalList.length) {
-		  const message = this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
-		  const hint = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
-		  if (typeof this.view.renderEmpty === 'function') {
-			await this.view.renderEmpty({ message, hint, state });
-		  } else {
-			await this.view.render([]);
-		  }
-		} else {
-		  await this.view.render(finalList);
-		}
-
-		this._lastAppliedState = state;
-	  } catch (err) {
-		console.error('CatalogController.applyFilters failed', err);
-		this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Ошибка при обработке каталога'));
-	  } finally {
-		this.view.hideLoading?.();
-	  }
-	}
-
 }
-
-/* ======================
-   Вспомогательные классы
-   ====================== */
 
 class ProductCache {
-  constructor(dataFactory) {
-    this._dataFactory = dataFactory;
-    this._data = null;
-  }
-
-  hasData() {
-    return Array.isArray(this._data) && this._data.length > 0;
-  }
-
-  set(list) {
-    this._data = Array.isArray(list) ? Array.from(list) : [];
-  }
-
-  getAll() {
-    return this._data || [];
-  }
-
-  clear() {
-    this._data = null;
-  }
+  constructor() { this._data = null; }
+  hasData() { return Array.isArray(this._data) && this._data.length > 0; }
+  set(list) { this._data = Array.isArray(list) ? Array.from(list) : []; }
+  getAll() { return this._data || []; }
+  clear() { this._data = null; }
 }
 
-/**
- * Класс для заполнения select'ов категориями/брендами.
- */
 class SelectPopulator {
   static async populate(selectEl, ps, {
     fillMethod, fetchMethod, getterSuffix, selectedValue = '', msgFn = () => ''
@@ -399,9 +332,7 @@ class SelectPopulator {
         return;
       }
 
-      if (typeof ps[fetchMethod] === 'function') {
-        await ps[fetchMethod]();
-      }
+      if (typeof ps[fetchMethod] === 'function') await ps[fetchMethod]();
 
       const getterName = `get${getterSuffix}`;
       const items = (typeof ps[getterName] === 'function') ? (ps[getterName]() || []) : [];
@@ -419,9 +350,7 @@ class SelectPopulator {
         const option = document.createElement('option');
         option.value = (item.id ?? item.name ?? '');
         option.textContent = (item.fullname ?? item.name ?? item.id ?? '');
-        if (selectedValue && String(option.value) === String(selectedValue)) {
-          option.selected = true;
-        }
+        if (selectedValue && String(option.value) === String(selectedValue)) option.selected = true;
         frag.appendChild(option);
       }
 
@@ -435,10 +364,6 @@ class SelectPopulator {
   }
 }
 
-/**
- * Сервис фильтрации и сортировки каталога.
- * Чистая логика -> легко тестировать отдельно.
- */
 class CatalogFilterService {
   apply(list, { search = '', category = '', brand = '', sort = '' } = {}) {
     if (!Array.isArray(list)) return [];
@@ -449,10 +374,7 @@ class CatalogFilterService {
     const sortOrder = String(sort || '');
 
     let filtered = list.filter(p => this._passesAllFilters(p, { searchTerm, categoryVal, brandVal }));
-
-    if (!sortOrder || filtered.length <= 1) {
-      return filtered;
-    }
+    if (!sortOrder || filtered.length <= 1) return filtered;
 
     return this._sort(filtered, sortOrder);
   }

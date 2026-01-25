@@ -1,14 +1,7 @@
 /**
+ * CatalogView — catalog view.
+ * Contract: shop.card.renderSingleCard(item, type) MUST return a Node (Element).
  * @author Calista Verner
- *
- * CatalogView — catalog view:
- *  - renders product list
- *  - renders empty state
- *  - reorders DOM when possible
- *  - updates a single card by product name/id
- *
- * Contract:
- *  - shop.card.renderSingleCard(item, type) MUST return a Node (Element)
  */
 export class CatalogView {
   constructor({ root, productsCountEl, shop, msg }) {
@@ -27,12 +20,9 @@ export class CatalogView {
 
   async render(list = []) {
     const arr = Array.isArray(list) ? list : [];
-
     if (!this.root) return;
 
-    if (this.productsCountEl) {
-      this.productsCountEl.textContent = String(arr.length);
-    }
+    if (this.productsCountEl) this.productsCountEl.textContent = String(arr.length);
 
     if (arr.length === 0) {
       this.renderNoResults();
@@ -50,25 +40,18 @@ export class CatalogView {
       await this.shop.card.renderCardList(arr, this.root, 'VERTICAL');
       this._rebuildCardIndex();
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('[CatalogView] render failed', e);
       if (this.root) this.root.innerHTML = '';
       this._cardById.clear();
     }
   }
 
-  /**
-   * Update a single card by product.name (or id).
-   * @param {string} name
-   * @param {object|null} newProduct
-   */
   async updateCardByName(name, newProduct = null) {
     if (!this.root) return;
     const id = String(name ?? '').trim();
     if (!id) return;
 
     if (!this._cardById.size) this._rebuildCardIndex();
-
     const oldCard = this._cardById.get(id);
     if (!oldCard) return;
 
@@ -85,21 +68,16 @@ export class CatalogView {
     try {
       const produced = await this.shop.card.renderSingleCard(product, 'VERTICAL');
 
-      // Support both Node and string (defensive), but prefer Node.
       let newCard = null;
-
-      if (produced instanceof Element) {
-        newCard = produced;
-      } else if (produced && typeof produced === 'object' && produced.nodeType === 1) {
-        newCard = produced;
-      } else if (typeof produced === 'string') {
+      if (produced instanceof Element) newCard = produced;
+      else if (produced && typeof produced === 'object' && produced.nodeType === 1) newCard = produced;
+      else if (typeof produced === 'string') {
         const tmp = document.createElement('div');
         tmp.innerHTML = produced;
         newCard = tmp.querySelector('[data-product-id]') || tmp.firstElementChild;
       }
 
       if (!newCard) {
-        // eslint-disable-next-line no-console
         console.warn('[CatalogView] updateCardByName: renderer did not produce a card node');
         return;
       }
@@ -109,10 +87,8 @@ export class CatalogView {
       const newId = newCard.getAttribute?.('data-product-id') || id;
       this._cardById.set(String(newId), newCard);
 
-      // Keep index consistent in case template uses different id attrs
       this._rebuildCardIndex();
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('[CatalogView] updateCardByName failed', e);
     }
   }
@@ -153,21 +129,15 @@ export class CatalogView {
     icon.innerHTML = `
       <svg width="48" height="48" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M3 6h18v2H3zm0 5h12v2H3zm0 5h6v2H3z"/>
-      </svg>
-    `;
+      </svg>`;
 
     const textEl = document.createElement('p');
     textEl.className = 'catalog-empty__text';
-    textEl.textContent =
-      message ||
-      this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
+    textEl.textContent = message || this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
 
     const hintEl = document.createElement('div');
     hintEl.className = 'catalog-empty__hint';
-    hintEl.textContent = this._msg(
-      'CATALOG_NO_RESULTS_HINT',
-      'Попробуйте изменить фильтры или сбросить поиск.'
-    );
+    hintEl.textContent = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
 
     wrap.append(icon, textEl, hintEl);
 

@@ -1,0 +1,92 @@
+:root{
+  /* Theme tokens (можно переопределять на уровне темы/страницы) */
+  --mbb-bg: #ff7200;
+  --mbb-text: #fff;
+
+  --mbb-radius: 14px;
+  --mbb-pad: 14px;
+  --mbb-gap: 10px;
+
+  /* Button tokens */
+  --btn-radius: 14px;
+  --btn-font-size: 16px;
+  --btn-font-weight: 650;
+  --btn-pad-y: 12px;
+  --btn-pad-x: 14px;
+
+  /* Primary / Secondary colors */
+  --btn-primary-bg: var(--button-primary, #1f6feb);
+  --btn-primary-bg-hover: var(--accent-700, #1557c0);
+  --btn-primary-text: #fff;
+
+  --btn-secondary-bg: var(--button-secondary, rgba(255,255,255,.18));
+  --btn-secondary-bg-hover: rgba(255,255,255,.26);
+  --btn-secondary-text: #fff;
+
+  /* Disabled */
+  --btn-disabled-opacity: .55;
+  --btn-disabled-filter: saturate(.9);
+
+  /* Shadow */
+  --mbb-shadow: 0 -10px 30px rgba(0,0,0,.18);
+}
+
+.btn{
+  -webkit-tap-highlight-color: transparent;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  width: 100%;
+  min-height: 44px;
+
+  padding: var(--btn-pad-y) var(--btn-pad-x);
+  border-radius: var(--btn-radius);
+  border: 1px solid transparent;
+
+  font-size: var(--btn-font-size);
+  font-weight: var(--btn-font-weight);
+  line-height: 1;
+
+  cursor: pointer;
+  user-select: none;
+
+  transform: translateZ(0);
+  transition: transform .12s ease, background .18s ease, border-color .18s ease, opacity .18s ease, filter .18s ease;
+}
+
+/* Primary */
+.btn-primary{
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: rgba(255,255,255,.12);
+}
+
+.btn-secondary{
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+  border-color: rgba(255,255,255,.22);
+}
+
+.btn:hover {
+  background: #ffa552;
+  box-shadow:
+    0 0 6px rgba(255,140,0,0.55),
+    0 0 18px rgba(255,115,0,0.35);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+  background: #e86400;
+  box-shadow: 0 0 4px rgba(255,115,0,0.45);
+}
+
+.btn[disabled],
+.fav-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}

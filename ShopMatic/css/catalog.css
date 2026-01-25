@@ -447,29 +447,6 @@
   min-width: fit-content;
 }
 
-/* Основная кнопка */
-.reset-bar {
-  height: 52px;
-  background: #ff7200;
-  padding: 0 20px 0 12px;
-  border-radius: 10px;
-  border: 1px solid #dde2eb;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  color: #4b5563;
-  box-shadow: 0 6px 20px rgba(15,23,42,0.06);
-  transition:
-    border-color .2s ease,
-    box-shadow .2s ease,
-    transform .2s ease,
-    background .2s ease;
-}
-
 /* Плашка-иконка слева — как у поля поиска */
 .reset-icon-wrap {
   width: 34px;
@@ -582,16 +559,9 @@
   width: 24px;
   height: 24px;
   z-index: 3;
-}
-
-.card__media .fav-btn:hover {
   background: transparent;
-  border: none;
   box-shadow: none;
-}
-
-.card__media .btn:hover {
-  color: #000000;
+  transform: translateY(0px);
 }
 
 .card__media .fav-btn i {
@@ -952,36 +922,6 @@
   text-align: center;
   opacity: 0.95;
   transition: opacity var(--timing-fast);
-}
-
-/* buttons */
-.btn {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 0;
-  cursor: pointer;
-  background: var(--brand);
-  color: #fff;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  font-size: 14px;
-  transition:
-    transform var(--timing-fast),
-    box-shadow var(--timing-fast),
-    background var(--timing-fast);
-  box-shadow: 0 8px 20px rgba(11,92,255,0.08);
-}
-
-.btn:active {
-  transform: translateY(1px);
-  box-shadow: 0 6px 16px rgba(11,92,255,0.06);
-}
-
-.btn[disabled] {
-  opacity: .6;
-  cursor: not-allowed;
-  background: #c9d6ff;
-  box-shadow: none;
 }
 
 /* ghost */

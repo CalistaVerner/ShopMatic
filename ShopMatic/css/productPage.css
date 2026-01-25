@@ -107,55 +107,11 @@
     height: 56px;
 }
 
-.product-page .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: .6rem .9rem;
-    border-radius: 10px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    font-weight: 700;
-    text-decoration: none;
-    user-select: none;
-    transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
-}
-
-.product-page .btn:focus-visible {
-    outline: 3px solid rgba(13,110,253,0.12);
-    outline-offset: 2px;
-}
-
 .product-page .main-card > .imgSpecsList {
 	
 list-style: none;
 	
 padding: 0;
-}
-
-.product-page .btn-primary {
-    background: var(--primary);
-    color: #fff;
-}
-
-.product-page .btn.btn-yellow {
-    background: var(--control-primary);
-    color: #ffffff;
-}
-
-.product-page .btn.btn-yellow:hover {
-    background: var(--control-primary-hover);
-}
-
-.product-page .btn.btn-outline {
-    background: transparent;
-    border: 1px solid #e6e6e6;
-    color: var(--text);
-}
-
-.product-page .btn.btn-outline:hover {
-    color: var(--text);
-    transform: translateY(-1px);
 }
 
 /* buy-actions */
@@ -406,19 +362,6 @@ button.fav-toggle i.active {
     flex-direction: column;
     gap: 10px;
     margin-top: 8px;
-}
-
-.btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 12px;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: transparent;
-    font-weight: 600;
 }
 
 .btn-outline {

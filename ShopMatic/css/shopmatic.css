@@ -110,30 +110,6 @@
 .wish-media img:hover {
   transform: scale(1.02);
 }
-
-/* buttons & states */
-
-.btn:hover {
-  background: #ffa552;
-  box-shadow:
-    0 0 6px rgba(255,140,0,0.55),
-    0 0 18px rgba(255,115,0,0.35);
-  transform: translateY(-1px);
-}
-
-.btn:active {
-  transform: translateY(0);
-  background: #e86400;
-  box-shadow: 0 0 4px rgba(255,115,0,0.45);
-}
-
-.btn[disabled],
-.fav-btn[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
 /* card body / text */
 
 .card__body,
@@ -242,31 +218,6 @@
   outline: none;
   font-weight: 600;
   font-size: 14px;
-}
-
-/* primary add to cart */
-
-.addToCart.btn {
-  background: var(--control-primary);
-  color: #ffffff;
-  height: 56px;
-  border-radius: 12px;
-  padding: 0 18px;
-  font-size: 15px;
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast),
-    box-shadow var(--transition-fast),
-    transform var(--transition-fast);
-}
-
-.addToCart.btn:hover {
-  box-shadow:
-    0 0 6px rgba(255,140,0,0.55),
-    0 0 18px rgba(255,115,0,0.35);
-  transform: translateY(-1px);
-  background: var(--control-primary-hover);
-  transition: 0.2s;
 }
 
 /* datasheet */

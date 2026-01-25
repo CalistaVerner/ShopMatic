@@ -60,33 +60,6 @@
 
 /* ====== Checkout block layout ====== */
 
-.mobileBottomBlock .btn-checkout{
-  display: block;
-  border-radius: var(--btn-radius);
-  overflow: hidden;
-}
-
-.mobileBottomBlock .btn-checkout > ul{
-  list-style: none;
-  margin: 0;
-  padding: 0;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--mbb-gap);
-
-  /* чтобы контент не прыгал */
-  min-height: 44px;
-}
-
-.mobileBottomBlock .btn-checkout > ul > li{
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
 .mobileBottomBlock .mobileProducts{
   flex: 1 1 auto;
   justify-content: flex-start;
@@ -135,23 +108,10 @@
   transition: transform .12s ease, background .18s ease, border-color .18s ease, opacity .18s ease, filter .18s ease;
 }
 
-/* Primary */
-.mobileBottomBlock .btn-primary{
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-text);
-  border-color: rgba(255,255,255,.12);
-}
-
 .mobileBottomBlock .btn ul {
 	display: contents;
 }
 
-/* Secondary */
-.mobileBottomBlock .btn-secondary{
-  background: var(--btn-secondary-bg);
-  color: var(--btn-secondary-text);
-  border-color: rgba(255,255,255,.22);
-}
 
 /* Hover/Active only for devices that support hover */
 @media (hover:hover) and (pointer:fine){
@@ -189,7 +149,6 @@
   gap: var(--mbb-gap);
 }
 
-/* Если нужно сделать primary шире */
 .mobileBottomBlock .mobileProductActions__inner.is-primary-wide{
   grid-template-columns: 1.3fr .7fr;
 }

@@ -10,11 +10,6 @@ export class EventBus {
     this._any = new Set();
   }
 
-  /**
-   * @param {string} event
-   * @param {(payload:any)=>void} handler
-   * @returns {()=>void} unsubscribe
-   */
   on(event, handler) {
     if (typeof handler !== 'function') return () => {};
     const key = String(event || '').trim();
@@ -28,21 +23,12 @@ export class EventBus {
     return () => this.off(key, handler);
   }
 
-  /**
-   * Subscribe to all events.
-   * @param {(event:string,payload:any)=>void} handler
-   * @returns {()=>void}
-   */
   onAny(handler) {
     if (typeof handler !== 'function') return () => {};
     this._any.add(handler);
     return () => this._any.delete(handler);
   }
 
-  /**
-   * @param {string} event
-   * @param {(payload:any)=>void} handler
-   */
   off(event, handler) {
     const key = String(event || '').trim();
     const set = this._map.get(key);
@@ -51,10 +37,6 @@ export class EventBus {
     if (set.size === 0) this._map.delete(key);
   }
 
-  /**
-   * @param {string} event
-   * @param {any} payload
-   */
   emit(event, payload) {
     const key = String(event || '').trim();
     if (!key) return;
