@@ -11,6 +11,7 @@ import { CheckoutController } from './ui/CheckoutController.js';
 import { CartStateSnapshot } from './CartStateSnapshot.js';
 import { Logger } from '../Logger.js';
 import { Events } from '../Events.js';
+import { makeEventEnvelope } from '../EventContracts.js';
 
 /**
  * @author Calista Verner
@@ -95,6 +96,73 @@ export class CartUI extends CartBase {
     this._domainChangeQty = (id, qty, o = {}) => CartBase.prototype.changeQty.call(this, id, qty, o);
   }
 
+
+  async _ensureProductsLoaded() {
+    const ps = this.productService;
+    if (!ps) return;
+
+    try {
+      // 1) Base warmup (list)
+      if (typeof ps.ensureWarm === 'function') {
+        await ps.ensureWarm();
+      } else if (typeof ps.getProducts === 'function' && typeof ps.loadProductsSimple === 'function') {
+        const existing = ps.getProducts({ clone: false }) || [];
+        if (!Array.isArray(existing) || existing.length === 0) {
+          await ps.loadProductsSimple({ force: false });
+        }
+      }
+
+      // 2) Ensure products for current cart ids exist (prevents "checkbox-only" rows).
+      const ids = (Array.isArray(this.cart) ? this.cart : [])
+        .map((it) => this._normalizeId(it?.name ?? it?.id ?? ''))
+        .filter(Boolean);
+
+      if (ids.length && typeof ps.ensureProductsByIds === 'function') {
+        await ps.ensureProductsByIds(ids, { concurrency: 4 });
+      } else if (ids.length && typeof ps.fetchById === 'function' && typeof ps.findById === 'function') {
+        // fallback: sequential best-effort
+        for (const id of ids) {
+          if (ps.findById(id)) continue;
+          try { await ps.fetchById(id); } catch {}
+        }
+      }
+    } catch (e) {
+      this._logError('productService warmup failed', e);
+    }
+  }
+
+  _setCartLoading(isLoading, count = 6) {
+    const grid = this.cartGrid;
+    if (!grid) return;
+
+    if (!isLoading) {
+      grid.classList.remove('sm-loading');
+      // do not wipe content here (renderer will replace)
+      return;
+    }
+
+    const n = Math.max(1, Math.min(16, Number(count) || 6));
+    grid.classList.add('sm-loading');
+
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+      const row = document.createElement('div');
+      row.className = 'sm-skel sm-skel-row';
+      row.innerHTML = `
+        <div class="sm-skel__thumb"></div>
+        <div class="sm-skel__body">
+          <div class="sm-skel__line sm-skel__line--lg"></div>
+          <div class="sm-skel__line"></div>
+          <div class="sm-skel__line sm-skel__line--sm"></div>
+        </div>
+        <div class="sm-skel__price"></div>
+      `;
+      frag.appendChild(row);
+    }
+    grid.innerHTML = '';
+    grid.appendChild(frag);
+  }
+
   /**
    * THE ONLY refresh pipeline (called by presenter).
    *
@@ -111,6 +179,11 @@ export class CartUI extends CartBase {
     const changedIdsSnapshot = this._snapshotChangedIds(overrideIdKey);
 	const cartItemsCount = Array.isArray(this.cart) ? this.cart.length : 0;
 
+    // UX: show skeletons while cart is refreshing (prevents "empty" flashes)
+    if (!overrideIdKey) this._setCartLoading(true, Math.min(8, Math.max(4, cartItemsCount || 6)));
+
+    await this._ensureProductsLoaded();
+
     this._prepareDomain();
     await this._refreshProducts(overrideIdKey);
     //this._syncIncludedProjectionOnce();
@@ -120,6 +193,8 @@ export class CartUI extends CartBase {
 
     await this._renderMiniCart();
     await this._renderGrid(overrideIdKey, changedIdsSnapshot);
+
+    if (!overrideIdKey) this._setCartLoading(false);
 
 	this.checkout.updateMobileCheckout({
 	  cartItemsCount,
@@ -217,11 +292,10 @@ export class CartUI extends CartBase {
 
   _emitCartUpdated(snapshot) {
     try {
-      this.eventBus?.emit?.(Events.UI_CART_UPDATED, snapshot);
-    } catch {}
-    // legacy alias
-    try {
-      this.eventBus?.emit?.(Events.LEGACY_CART_UPDATED, snapshot);
+      this.eventBus?.emit?.(
+        Events.UI_CART_UPDATED,
+        makeEventEnvelope(Events.UI_CART_UPDATED, snapshot, { source: 'CartUI' })
+      );
     } catch {}
   }
 

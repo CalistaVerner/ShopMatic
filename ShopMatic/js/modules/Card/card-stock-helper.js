@@ -1,3 +1,4 @@
+import { IdUtils } from '../Utils/IdUtils.js';
 // card-stock-helper.js
 export class CardStockHelper {
   constructor(card) {
@@ -19,6 +20,8 @@ export class CardStockHelper {
     }
   }
 
+  _norm(v) { return IdUtils.key(v); }
+
   findCartQtyById(id) {
     const { shopMatic } = this.card;
     try {
@@ -29,14 +32,17 @@ export class CardStockHelper {
       if (!Array.isArray(cartArray)) return 0;
 
       const keys = ['id', 'productId', 'name', 'cartId', 'itemId'];
+      const target = this._norm(id);
+      if (!target) return 0;
       for (const it of cartArray) {
         if (!it) continue;
         for (const k of keys) {
-          if (it[k] != null && String(it[k]) === String(id)) {
+          const v = this._norm(it[k]);
+          if (v && v === target) {
             return Number(it.qty ?? it.quantity ?? 0) || 0;
           }
         }
-        if (String(it) === String(id)) return Number(it.qty ?? 0) || 0;
+        if (this._norm(it) === target) return Number(it.qty ?? 0) || 0;
       }
     } catch {
       // ignore

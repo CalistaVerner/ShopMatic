@@ -1,3 +1,5 @@
+import { formatPrice, pluralize } from '../../utils.js';
+
 /**
  * @author Calista Verner
  *
@@ -161,10 +163,11 @@ export class CheckoutController {
   openCheckout() {
     try {
       const sm = this.ctx.shopMatic;
-      if (sm && sm.router && typeof sm.router.go === 'function') {
-        sm.router.go('#page/checkout');
+      if (sm && sm.router && typeof sm.router.toPage === 'function') {
+        sm.router.toPage('checkout');
         return;
       }
+      if (sm && sm.router && typeof sm.router.go === 'function') { sm.router.go('#page/checkout'); return; }
       if (this.ctx.foxEngine && this.ctx.foxEngine.page && typeof this.ctx.foxEngine.page.loadPage === 'function') {
         this.ctx.foxEngine.page.loadPage('checkout');
         return;
@@ -285,7 +288,7 @@ export class CheckoutController {
       const wrap = document.createElement('div');
       wrap.innerHTML = `
         <section class="mobileBottomBlock" id="${this.opts.blockId}">
-          <a href="#page/checkout" class="btn btn-primary" data-target="checkout">
+          <a href="#page/checkout" class="sm-btn sm-btn--primary" data-target="checkout">
             <ul>
               <li class="mobileProducts">
                 <span id="mobileProductCount"></span>
@@ -329,8 +332,9 @@ export class CheckoutController {
     if (!block) return;
 
     try {
-      if (this._countEl) this._countEl.textContent = String(Math.max(0, this._last.includedCount));
-      if (this._wordEl) this._wordEl.textContent = this._pluralizeGoods(Math.max(0, this._last.includedCount));
+      const count = Math.max(0, this._last.includedCount);
+      if (this._countEl) this._countEl.textContent = String(count);
+      if (this._wordEl) this._wordEl.textContent = pluralize(count, ['товар', 'товара', 'товаров']);
       if (this._priceEl) this._priceEl.textContent = this._formatPrice(Math.max(0, this._last.sum));
     } catch (e) {
       this._err('applyDataToDom failed', e);
@@ -338,7 +342,7 @@ export class CheckoutController {
 
     // aria semantics on link
     try {
-      const link = block.querySelector('a.btn-primary');
+      const link = block.querySelector('a[data-target="checkout"], a[data-role="go-checkout"], a[data-action="checkout"]');
       if (link) {
         const disabled = this._shouldHideByData();
         link.setAttribute('aria-disabled', disabled ? 'true' : 'false');
@@ -358,23 +362,12 @@ export class CheckoutController {
       this._warn('_formatPrice failed', { err: e });
     }
 
-    // fall back to global util if present
+    // shared util (tolerant)
     try {
-      if (typeof window.formatPrice === 'function') return window.formatPrice(sum);
-    } catch {}
-
-    return String(sum);
-  }
-
-  _pluralizeGoods(n) {
-    const forms = ['товар', 'товара', 'товаров'];
-    const num = Math.abs(Number(n) || 0);
-    const n10 = num % 10;
-    const n100 = num % 100;
-
-    if (n10 === 1 && n100 !== 11) return forms[0];
-    if (n10 >= 2 && n10 <= 4 && (n100 < 10 || n100 >= 20)) return forms[1];
-    return forms[2];
+      return formatPrice(sum, 'RUB');
+    } catch (e) {
+      return String(sum ?? '');
+    }
   }
 
   _handleCheckoutClick(ev, container) {
@@ -383,9 +376,15 @@ export class CheckoutController {
 
     let btn = null;
     try {
-      btn = ev.target && ev.target.closest ? ev.target.closest('.btn-primary') : null;
+      // IMPORTANT:
+      // Never bind checkout navigation to presentation classes like `.sm-btn--primary`.
+      // After UI standardization many buttons share primary styling.
+      // We only react to explicitly marked checkout triggers.
+      btn = ev.target && ev.target.closest
+        ? ev.target.closest('[data-target="checkout"], [data-role="go-checkout"], [data-action="checkout"]')
+        : null;
     } catch (e) {
-      this._warn('closest(.btn-primary) failed', { err: e });
+      this._warn('closest(checkout trigger) failed', { err: e });
       return;
     }
 

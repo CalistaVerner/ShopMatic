@@ -358,7 +358,7 @@ _updateRowDom(row, data = {}) {
       cartEl.innerHTML = `
         <div class="cart-empty" role="status" aria-live="polite">
           <p><i class="fa-regular fa-cart-shopping" aria-hidden="true"></i> Ваша корзина пуста.</p>
-          <a href="#page/catalog" class="btn btn-primary">Перейти в каталог</a>
+          <a href="#page/catalog" class="sm-btn sm-btn--primary">Перейти в каталог</a>
         </div>`;
       return;
     }

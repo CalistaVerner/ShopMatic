@@ -16,6 +16,8 @@
  *  - Внесены небольшие оптимизации по работе с DOM и кешированию
  */
 
+import { escapeHtml, formatPrice, pluralize } from '../utils.js';
+
 export class MiniCart {
   /**
    * Общие текстовые сообщения и классы для UI
@@ -78,30 +80,22 @@ export class MiniCart {
   }
 
   /**
-   * Экранирует строку для HTML
+   * HTML escaping (delegated to shared utility)
    * @param {any} s
    * @returns {string}
    */
   static _escapeHtml(s) {
-    return String(s ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    // Kept as method for backwards compatibility inside this module.
+    return escapeHtml(s);
   }
 
   /**
-   * Форматирует цену в рублях
-   * @param {number|string} num
+   * Цена (delegated to shared utility)
+   * @param {number|string|null} num
    * @returns {string}
    */
   _formatPrice(num) {
-    try {
-      return Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(Number(num || 0));
-    } catch (e) {
-      return String(num || 0);
-    }
+    return formatPrice(Number(num ?? 0));
   }
 
   /* ---------- DOM helpers ---------- */
@@ -339,7 +333,7 @@ export class MiniCart {
     if (dropped > 0) {
       const summary = document.createElement('li');
       summary.className = 'mc-item mc-summary';
-      const plural = dropped > 1 ? 'ов' : '';
+      const plural = pluralize(dropped, ['', 'а', 'ов']);
       summary.innerHTML = this._msg('SUMMARY_MORE', { n: dropped, plural });
       frag.appendChild(summary);
     }

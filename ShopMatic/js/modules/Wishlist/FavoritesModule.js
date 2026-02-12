@@ -1,6 +1,8 @@
 import { FavoritesCore } from './FavoritesCore.js';
 import { FavoritesStorageManager } from './FavoritesStorageManager.js';
 import { FavoritesUI } from './ui/FavoritesUI.js';
+import { Events } from '../Events.js';
+import { makeEventEnvelope } from '../EventContracts.js';
 
 /**
  * FavoritesModule
@@ -45,7 +47,9 @@ export class FavoritesModule {
 
   _emitFavChanged(payload) {
     const bus = this._bus();
-    try { bus?.emit?.('favorites:changed', payload); } catch {}
+    if (!bus?.emit) return;
+    // Yandex-standard: canonical envelope only.
+    try { bus.emit(Events.DOMAIN_FAVORITES_CHANGED, makeEventEnvelope(Events.DOMAIN_FAVORITES_CHANGED, payload, { source: 'FavoritesModule' })); } catch {}
   }
 
   _emit(event) {

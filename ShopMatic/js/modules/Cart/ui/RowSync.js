@@ -77,8 +77,10 @@ export class RowSync {
   markRemoved(row) {
     if (!row) return;
     row.setAttribute('data-removed', '1');
-    try { row.hidden = true; } catch {}
-    DomUtils.setVisible(row, false);
+
+    // Premium UX: fade + collapse, then hide.
+    // This keeps DOM stable during re-render and feels "market-grade".
+    DomUtils.fadeOutAndHide(row, { duration: 220, collapse: true, remove: false });
   }
 
   /**
@@ -88,8 +90,26 @@ export class RowSync {
   restoreRow(row) {
     if (!row) return;
     row.removeAttribute('data-removed');
+
+    // Restore visibility.
     try { row.hidden = false; } catch {}
     DomUtils.setVisible(row, true);
+
+    // Clean possible fade/collapse artifacts.
+    try { if (row.dataset) delete row.dataset.smRemoving; } catch {}
+    try { row.classList.remove('sm-row-removing'); } catch {}
+    try {
+      row.style.opacity = '';
+      row.style.transform = '';
+      row.style.maxHeight = '';
+      row.style.overflow = '';
+      row.style.transition = '';
+      row.style.willChange = '';
+      row.style.paddingTop = '';
+      row.style.paddingBottom = '';
+      row.style.marginTop = '';
+      row.style.marginBottom = '';
+    } catch {}
   }
 
   /**

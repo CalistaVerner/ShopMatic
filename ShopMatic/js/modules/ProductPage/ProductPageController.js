@@ -1,5 +1,6 @@
 // ProductPage/ProductPageController.js
 import { MobileProductActionsBar } from "./MobileProductActionsBar.js";
+import { Events } from '../Events.js';
 export class ProductPageController {
   constructor(context, view) {
     this.ctx = context;
@@ -13,9 +14,11 @@ export class ProductPageController {
       onQtyDecr: this.onQtyDecr.bind(this),
       onWishlistClick: this.onWishlistClick.bind(this),
       onBackClick: this.onBackClick.bind(this),
-      onCartUpdated: this.onCartUpdated.bind(this),
       onBuyNowClick: this.onBuyNowClick.bind(this),
     };
+
+    /** @type {(()=>void)|null} */
+    this._unsubBus = null;
   }
 
   async render(productId, container) {
@@ -120,7 +123,15 @@ export class ProductPageController {
 	this.mobileActions.bind(document.body);
 	this.ctx.currentProductId = this.view.currentProductId; // чтобы bar мог забрать id
 	this.mobileActions.refresh();
-    window.addEventListener('cart:updated', this._bound.onCartUpdated);
+    // Yandex-standard: subscribe to canonical cart events (no legacy DOM events)
+    try {
+      const bus = this.ctx?.shopMatic?.eventBus;
+      if (bus && typeof bus.on === 'function') {
+        const u1 = bus.on(Events.DOMAIN_CART_CHANGED, () => this.view.syncQtyControls());
+        const u2 = bus.on(Events.UI_CART_UPDATED, () => this.view.syncQtyControls());
+        this._unsubBus = () => { try { u1?.(); } catch {} try { u2?.(); } catch {} };
+      }
+    } catch (_) {}
 
     try {
       this.view.initGallery();
@@ -164,7 +175,8 @@ export class ProductPageController {
     c.querySelectorAll('.size-btn')
       .forEach(b => b.replaceWith(b.cloneNode(true)));
 
-    window.removeEventListener('cart:updated', this._bound.onCartUpdated);
+    try { this._unsubBus?.(); } catch {}
+    this._unsubBus = null;
   }
 
   /* ---------- handlers ---------- */
@@ -308,25 +320,11 @@ export class ProductPageController {
           console.warn('cart.remove threw', err);
         }
 
-        window.dispatchEvent(
-          new CustomEvent('cart:updated', { detail: { changedIds: [pid] } }),
-        );
       } else {
         try {
           this.ctx.changeCartQty(pid, target);
         } catch (err) {
           console.warn('cart.changeQty threw', err);
-        }
-
-        if (Array.isArray(this.ctx.cart?.cart)) {
-          const idx = this.ctx.cart.cart.findIndex(i => String(i.name) === String(pid));
-          if (idx >= 0) {
-            this.ctx.cart.cart[idx].qty = Number(target);
-            this.ctx.cart.save?.();
-            window.dispatchEvent(
-              new CustomEvent('cart:updated', { detail: { changedIds: [pid] } }),
-            );
-          }
         }
       }
 
@@ -342,10 +340,6 @@ export class ProductPageController {
       return;
     }
     if (this.view.container) this.view.container.innerHTML = '';
-  }
-
-  onCartUpdated() {
-    this.view.syncQtyControls();
   }
 
   onBuyNowClick(e) {
@@ -389,7 +383,10 @@ export class ProductPageController {
       specs: product.specs ?? product.description ?? '',
     };
 
-    location.hash = '#page/checkout';
+    const sm = this.ctx.shop || this.ctx.shopMatic || this.ctx;
+    if (sm?.router?.toPage) sm.router.toPage('checkout');
+    else if (sm?.router?.go) sm.router.go('#page/checkout');
+    else location.hash = '#page/checkout';
 
     setTimeout(() => {
       if (this.ctx.shop && this.ctx.shop.checkoutPage) {

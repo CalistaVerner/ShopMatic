@@ -1,5 +1,6 @@
 import { CartUI } from './CartUI.js';
 import { Events } from '../Events.js';
+import { makeEventEnvelope } from '../EventContracts.js';
 
 /**
  * CartModule
@@ -39,10 +40,9 @@ export class CartModule extends CartUI {
 
   _emitCartChanged(payload) {
     const bus = this._bus();
-    // canonical
-    try { bus?.emit?.(Events.DOMAIN_CART_CHANGED, payload); } catch {}
-    // legacy alias
-    try { bus?.emit?.(Events.LEGACY_CART_CHANGED, payload); } catch {}
+    if (!bus?.emit) return;
+    // Yandex-standard: canonical envelope only.
+    try { bus.emit(Events.DOMAIN_CART_CHANGED, makeEventEnvelope(Events.DOMAIN_CART_CHANGED, payload, { source: 'CartModule' })); } catch {}
   }
 
   add(productId, qty = 1) {

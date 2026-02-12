@@ -52,6 +52,10 @@ export class CatalogController {
     this._selectorsInitialized = false;
 
     this._filterService = new CatalogFilterService();
+
+    // Prevent race conditions: only latest applyFilters() may update the view.
+    this._applySeq = 0;
+    this._activeApplySeq = 0;
   }
 
   _msg(key, fallback = '') {
@@ -74,7 +78,12 @@ export class CatalogController {
   }
 
   _setLocationHash(hash) {
-    try { location.hash = hash; } catch {}
+    const h = String(hash || '').trim();
+    if (!h) return;
+    try {
+      if (this.shop?.router?.go) return this.shop.router.go(h);
+    } catch {}
+    try { location.hash = h; } catch {}
   }
 
   _showNotification(message) {
@@ -275,6 +284,9 @@ export class CatalogController {
   async applyFilters() {
     if (!this.view) return;
 
+    const seq = ++this._applySeq;
+    this._activeApplySeq = seq;
+
     this.view.showLoading?.();
 
     try {
@@ -285,12 +297,17 @@ export class CatalogController {
 
       const state = this._getCurrentFilterState();
 
+      // If a newer applyFilters() started — abandon this one.
+      if (seq !== this._activeApplySeq) return;
+
       if (this._lastAppliedState && deepEqual(this._lastAppliedState, state)) {
-        this.view.hideLoading?.();
+        if (seq === this._activeApplySeq) this.view.hideLoading?.();
         return;
       }
 
       const finalList = this._filterService.apply(list, state);
+
+      if (seq !== this._activeApplySeq) return;
 
       if (!finalList.length) {
         const message = this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
@@ -306,7 +323,7 @@ export class CatalogController {
       console.error('CatalogController.applyFilters failed', err);
       this._showNotification(this._msg('CATALOG_LOAD_ERROR', 'Ошибка при обработке каталога'));
     } finally {
-      this.view.hideLoading?.();
+      if (seq === this._activeApplySeq) this.view.hideLoading?.();
     }
   }
 }

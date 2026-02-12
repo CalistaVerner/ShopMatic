@@ -2,11 +2,17 @@
  * Base class for backend API communication.
  *
  * Provides:
- * - unified timeout handling
+ * - unified timeout handling (legacy fallback)
  * - basic logging
  * - flexible request builder
  * - helper for extracting arrays from various backend response shapes
+ * - optional ApiClient integration (preferred)
  */
+
+import { ServiceRegistry } from './Api/ServiceRegistry.js';
+import { ApiClient } from './Api/ApiClient.js';
+import { FoxService } from './Api/FoxService.js';
+
 export class ApiFetcher {
   /**
    * @param {Object} foxEngine - Transport/engine used to send requests.
@@ -16,20 +22,21 @@ export class ApiFetcher {
    * @param {boolean} [options.debug=false] - Enables debug logging when true.
    * @param {(code: string) => string} [options.msgFn] - Optional function to translate message codes to human-readable text.
    * @param {(...args: any[]) => void} [options.logFn] - Optional logger implementation (defaults to console.debug in debug mode).
+   * @param {{request:(req:any)=>Promise<any>}} [options.apiClient] - Optional external ApiClient-like implementation.
    */
-  constructor(
-    foxEngine,
-    {
+  constructor(foxEngine, options = {}) {
+    if (!foxEngine) {
+      throw new TypeError('ApiFetcher requires foxEngine');
+    }
+
+    const {
       endpoints = {},
       timeoutMs = 7000,
       debug = false,
       msgFn,
-      logFn
-    } = {}
-  ) {
-    if (!foxEngine) {
-      throw new TypeError('ApiFetcher requires foxEngine');
-    }
+      logFn,
+      apiClient
+    } = options;
 
     /** @protected */
     this.foxEngine = foxEngine;
@@ -60,10 +67,7 @@ export class ApiFetcher {
      * @type {(code: string) => string}
      * @protected
      */
-    this._msgFn =
-      typeof msgFn === 'function'
-        ? msgFn
-        : () => '';
+    this._msgFn = typeof msgFn === 'function' ? msgFn : () => '';
 
     /**
      * Logger implementation.
@@ -79,6 +83,42 @@ export class ApiFetcher {
               console.debug(...args);
             }
           };
+
+    /**
+     * Internal unified client (preferred).
+     * @protected
+     */
+    this._apiClient = null;
+
+    /**
+     * Registry used only when we need to build ApiClient from foxEngine.
+     * @protected
+     */
+    this._registry = null;
+
+    // Prefer explicitly provided apiClient, else build on top of foxEngine.
+    try {
+      if (apiClient && typeof apiClient.request === 'function') {
+        this._apiClient = apiClient;
+      } else if (typeof foxEngine.sendPostAndGetAnswer === 'function') {
+        this._registry = new ServiceRegistry();
+        this._registry.register('fox', new FoxService(foxEngine));
+
+        this._apiClient = new ApiClient(this._registry, {
+          defaultService: 'fox',
+          defaultTimeoutMs: this.timeoutMs || 7000,
+          maxRetries: 1,
+          retryBaseDelayMs: 220,
+          cacheTtlMs: 10_000,
+          debug: this.debug,
+          logFn: this._logFn
+        });
+      }
+    } catch (e) {
+      // non-fatal: fallback to legacy _safeCall
+      this._apiClient = null;
+      this._registry = null;
+    }
   }
 
   /**
@@ -91,7 +131,7 @@ export class ApiFetcher {
   }
 
   /**
-   * Safely performs a backend call with optional timeout protection.
+   * Safely performs a backend call with optional timeout protection (legacy path).
    *
    * @protected
    * @template TResult
@@ -109,12 +149,8 @@ export class ApiFetcher {
     }
 
     const timeoutPromise = new Promise((_, reject) => {
-      const message =
-        this._msgFn('ERROR_TIMEOUT') || 'Request timeout';
-
-      setTimeout(() => {
-        reject(new Error(message));
-      }, timeout);
+      const message = this._msgFn('ERROR_TIMEOUT') || 'Request timeout';
+      setTimeout(() => reject(new Error(message)), timeout);
     });
 
     // Race backend call with timeout to avoid hanging requests.
@@ -122,24 +158,54 @@ export class ApiFetcher {
   }
 
   /**
-   * Tries to extract an array of items from various possible response shapes.
+   * Unified call wrapper:
+   * - uses ApiClient when available (retries/cache/timeout normalization)
+   * - falls back to legacy _safeCall otherwise
    *
-   * Examples of supported shapes:
-   * - Array: `res = [...]`
-   * - Object with known array properties: `{ items: [...] }`, `{ data: [...] }`, etc.
-   * - Object with any first array property
-   * - Fallback: wrap the whole object into an array `[res]`
+   * @protected
+   * @template TResult
+   * @param {Object} payload
+   * @param {'JSON'|'TEXT'|string} [expect='JSON']
+   * @param {{cacheKey?:string, cacheTtlMs?:number, retries?:number, retry?:boolean}} [opts]
+   * @returns {Promise<TResult>}
+   */
+  async _call(payload, expect = 'JSON', opts = {}) {
+    const p = payload || {};
+    const endpoint = String(p.sysRequest || p.endpoint || '').trim();
+
+    // If endpoint is not present, fallback to legacy call
+    if (!endpoint) return this._safeCall(p, expect);
+
+    // Preferred path via ApiClient
+    if (this._apiClient && typeof this._apiClient.request === 'function') {
+      // Remove sysRequest from payload for transport layer (it will be set as endpoint).
+      const { sysRequest, endpoint: _ep, ...rest } = p;
+
+      return this._apiClient.request({
+        endpoint,
+        payload: rest,
+        expect,
+        timeoutMs: this.timeoutMs || undefined,
+        cacheKey: opts.cacheKey,
+        cacheTtlMs: opts.cacheTtlMs,
+        retries: opts.retries,
+        retry: opts.retry
+      });
+    }
+
+    // Legacy path
+    return this._safeCall(p, expect);
+  }
+
+  /**
+   * Tries to extract an array of items from various possible response shapes.
    *
    * @protected
    * @param {any} res - Response object returned from backend.
    * @param {string[]} [prefer=['items','products','data','categories','brands','list']]
-   *   - Preferred property names to check first.
-   * @returns {Array<any>} - Normalized array (never `null` or `undefined`).
+   * @returns {Array<any>}
    */
-  _extractArray(
-    res,
-    prefer = ['items', 'products', 'data', 'categories', 'brands', 'list']
-  ) {
+  _extractArray(res, prefer = ['items', 'products', 'data', 'categories', 'brands', 'list']) {
     if (!res) return [];
     if (Array.isArray(res)) return res;
     if (typeof res !== 'object') return [];
@@ -152,7 +218,6 @@ export class ApiFetcher {
       if (Array.isArray(res[key])) return res[key];
     }
 
-    // As a last resort, wrap the whole response into an array.
     return [res];
   }
 
@@ -175,20 +240,9 @@ export class ApiFetcher {
   /**
    * Builds a request payload in a flexible but predictable way.
    *
-   * Behaviour:
-   * - If `request` is a string → overrides `sysRequest`.
-   * - If `request` is an object:
-   *   - `endpoint` / `sysRequest` may override the base endpoint
-   *   - `params` and `payload` are merged together
-   *   - all extra top-level fields are also merged in
-   *   - `sysRequest` in final payload is determined from:
-   *     `request.endpoint || request.sysRequest || resolvedEndpoint`
-   *
-   * This logic is kept compatible with the original implementation.
-   *
    * @protected
-   * @param {string} endpointOrKey - Endpoint key or direct backend endpoint name.
-   * @param {null|string|Object} [request=null] - Optional request override.
+   * @param {string} endpointOrKey
+   * @param {null|string|Object} [request=null]
    * @returns {{ endpoint: string, payload: Object }}
    */
   _buildRequest(endpointOrKey, request = null) {
@@ -199,7 +253,6 @@ export class ApiFetcher {
 
     if (request) {
       if (typeof request === 'string') {
-        // Simple string override for sysRequest.
         payload.sysRequest = request;
       } else if (typeof request === 'object') {
         const {
@@ -212,7 +265,6 @@ export class ApiFetcher {
 
         const finalSysRequest = reqEndpoint || reqSys || resolvedEndpoint;
 
-        // Preserve original merge order: params -> payload -> extra -> sysRequest.
         payload = {
           ...(reqParams || {}),
           ...(reqPayload || {}),

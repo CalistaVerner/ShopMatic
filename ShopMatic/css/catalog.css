@@ -819,7 +819,7 @@
   display: block;
   transition: opacity .3s ease, transform .4s ease;
   will-change: opacity, transform;
-  z-index: -3;
+  z-index: 0;
 }
 
 .card__media img:hover {
@@ -1012,7 +1012,6 @@
   position: absolute;
   inset: 0;
   display: flex;
-  z-index: 2;
   pointer-events: auto;
 }
 

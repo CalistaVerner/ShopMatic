@@ -95,8 +95,24 @@ export class CartBase {
   }
 
   _resolveProduct(id) {
+    const sid = this._normalizeId(id);
+    if (!sid) return null;
+
     try {
-      return this.productService?.findById?.(id) ?? this.productService?.getById?.(id) ?? null;
+      const ps = this.productService;
+      const existing =
+        ps?.findById?.(sid) ??
+        ps?.getById?.(sid) ??
+        null;
+
+      if (existing) return existing;
+
+      // If backend supports fetch-by-id, return a Promise (CartUI will await via thenable check).
+      if (ps && typeof ps.fetchById === 'function') {
+        return ps.fetchById(sid);
+      }
+
+      return null;
     } catch {
       return null;
     }

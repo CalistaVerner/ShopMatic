@@ -11,6 +11,19 @@ import { ViewedItemsModule } from './modules/ViewedItemsModule.js';
 import { Catalog } from './modules/Catalog/CatalogController.js';
 import { CheckoutPage } from './modules/Checkout/CheckoutController.js';
 
+// External services / integrations
+import { ServiceRegistry } from './modules/Api/ServiceRegistry.js';
+import { ApiClient } from './modules/Api/ApiClient.js';
+import { FoxService } from './modules/Api/FoxService.js';
+import { KnowledgeBaseApi } from './modules/Integrations/KnowledgeBaseApi.js';
+
+// App kernel: store + router (production-grade SPA policy layer)
+import { combineReducers, createStore } from './modules/App/Store.js';
+import { routeReducer } from './modules/App/slices/routeSlice.js';
+import { RouterPolicy } from './modules/App/RouterPolicy.js';
+import { Events } from './modules/Events.js';
+import { makeEventEnvelope } from './modules/EventContracts.js';
+
 /**
  * ShopMatic orchestrates all modules of the shop and exposes a high level API
  * for cart management, favourites and product navigation. The actual product
@@ -26,6 +39,29 @@ export class ShopMatic {
   constructor(foxEngine, opts = {}) {
     if (!foxEngine) throw new Error('foxEngine is required');
     this.foxEngine = foxEngine;
+
+    // ---------------------------------------------------------------------
+    // External services & API
+    // ---------------------------------------------------------------------
+    // Service registry allows decoupled integrations (REST, sysRequest, etc.)
+    this.services = new ServiceRegistry();
+    // Default backend transport (sysRequest via foxEngine)
+    this.services.register('fox', new FoxService(this.foxEngine));
+
+    // Unified API client. Modules can use it for integrations.
+    this.api = new ApiClient(this.services, {
+      defaultService: 'fox',
+      defaultTimeoutMs: 7000,
+      maxRetries: 1,
+      retryBaseDelayMs: 220,
+      cacheTtlMs: 10_000,
+      debug: !!opts.debug
+    });
+
+    // Integrations namespace: other modules can reuse ShopMatic transports.
+    this.integrations = {
+      knowledgeBase: new KnowledgeBaseApi(this.api)
+    };
 
     // Merge default options with any overrides
     this.opts = Object.assign({
@@ -54,6 +90,18 @@ export class ShopMatic {
     // Core modules
     this.eventBus = new EventBus();
     this.deviceUtil = foxEngine.deviceUtil;
+
+    // ---------------------------------------------------------------------
+    // App kernel (store + router policy)
+    // ---------------------------------------------------------------------
+    this.store = createStore(
+      combineReducers({
+        route: routeReducer
+      })
+    );
+
+    this.router = new RouterPolicy(this.store, { debug: !!opts.debug });
+    try { this.router.init(); } catch (e) { console.warn('[ShopMatic] router.init failed', e); }
 
     this.productService = new ProductService(this.foxEngine);
     this.card = new Card(this);
@@ -110,8 +158,7 @@ export class ShopMatic {
 
     // Bound handlers for global events
     this._bound = {
-      onStorage: this._onStorageEvent.bind(this),
-      onCartUpdated: this._onCartUpdated.bind(this) // legacy hook (kept as API)
+      onStorage: this._onStorageEvent.bind(this)
     };
 
     // Delegation handlers registry (legacy; kept for compatibility)
@@ -188,10 +235,6 @@ export class ShopMatic {
     // Bind global events
     window.addEventListener('storage', this._bound.onStorage);
 
-    // Legacy global event hook (kept, but not required anymore).
-    // If external code dispatches 'cart:updated', we translate it to eventBus.
-    window.addEventListener('cart:updated', this._bound.onCartUpdated);
-
     // IMPORTANT:
     // No global card delegation bind here anymore.
     // Bindings happen ONLY in renderers that create card DOM via Card.mount(...)
@@ -204,8 +247,16 @@ export class ShopMatic {
     // Initial hints (optional, harmless)
     try {
       const favIds = this.favorites.exportToArray?.() || [];
-      if (favIds.length) this.eventBus.emit('favorites:changed', { ids: favIds, action: 'init' });
-      this.eventBus.emit('cart:changed', { action: 'init' });
+      if (favIds.length) {
+        this.eventBus.emit(
+          Events.DOMAIN_FAVORITES_CHANGED,
+          makeEventEnvelope(Events.DOMAIN_FAVORITES_CHANGED, { ids: favIds, action: 'init' }, { source: 'ShopMatic' })
+        );
+      }
+      this.eventBus.emit(
+        Events.DOMAIN_CART_CHANGED,
+        makeEventEnvelope(Events.DOMAIN_CART_CHANGED, { action: 'init' }, { source: 'ShopMatic' })
+      );
     } catch {}
   }
 
@@ -215,7 +266,6 @@ export class ShopMatic {
    */
   destroy() {
     window.removeEventListener('storage', this._bound.onStorage);
-    window.removeEventListener('cart:updated', this._bound.onCartUpdated);
 
     // Destroy catalog and unbind filter events
     if (this.catalog && typeof this.catalog.destroy === 'function') {
@@ -268,20 +318,6 @@ export class ShopMatic {
   }
 
   /**
-   * Synchronise quantity controls and disabled state across all cards. Delegates
-   * to Card module for per-card logic. Accepts an optional container; defaults
-   * to the catalog root.
-   * NOTE: Kept for backward compatibility. New flow uses Card.syncById.
-   * @param {HTMLElement} container Optional container to sync controls within.
-   */
-  _syncAllCardsControls(container = null) {
-    const root = container || (this.catalog && this.catalog.root);
-    if (!root) return;
-    const cards = Array.from(root.querySelectorAll('[data-product-id]'));
-    cards.forEach(card => this.card._syncCardControlsState(card));
-  }
-
-  /**
    * Handle updates from storage. Re-sync cart/favourites and refresh UI.
    * @param {StorageEvent} e Storage event
    */
@@ -295,14 +331,17 @@ export class ShopMatic {
 
       this._updateWishUI();
 
-      // Hint reactive layer
+      // Hint reactive layer (canonical)
       try {
-        this.eventBus.emit('cart:changed', { action: 'storage:clear' });
-        this.eventBus.emit('favorites:changed', { action: 'storage:clear' });
+        this.eventBus.emit(
+          Events.DOMAIN_CART_CHANGED,
+          makeEventEnvelope(Events.DOMAIN_CART_CHANGED, { action: 'storage:clear' }, { source: 'ShopMatic' })
+        );
+        this.eventBus.emit(
+          Events.DOMAIN_FAVORITES_CHANGED,
+          makeEventEnvelope(Events.DOMAIN_FAVORITES_CHANGED, { action: 'storage:clear' }, { source: 'ShopMatic' })
+        );
       } catch {}
-
-      // Legacy fallback
-      this._syncAllCardsControls();
       return;
     }
 
@@ -312,11 +351,11 @@ export class ShopMatic {
       try { this.cart.updateCartUI(); } catch (_) {}
 
       try {
-        this.eventBus.emit('cart:changed', { action: 'storage:cart' });
+        this.eventBus.emit(
+          Events.DOMAIN_CART_CHANGED,
+          makeEventEnvelope(Events.DOMAIN_CART_CHANGED, { action: 'storage:cart' }, { source: 'ShopMatic' })
+        );
       } catch {}
-
-      // Legacy fallback
-      this._syncAllCardsControls();
     }
 
     // Favourites storage changed
@@ -327,32 +366,15 @@ export class ShopMatic {
 
       try {
         const favIds = this.favorites.exportToArray?.() || [];
-        if (favIds.length) this.eventBus.emit('favorites:changed', { ids: favIds, action: 'storage:favs' });
-        else this.eventBus.emit('favorites:changed', { action: 'storage:favs' });
+        this.eventBus.emit(
+          Events.DOMAIN_FAVORITES_CHANGED,
+          makeEventEnvelope(
+            Events.DOMAIN_FAVORITES_CHANGED,
+            favIds.length ? { ids: favIds, action: 'storage:favs' } : { action: 'storage:favs' },
+            { source: 'ShopMatic' }
+          )
+        );
       } catch {}
-    }
-  }
-
-  /**
-   * Legacy hook: React to cart updates by refreshing quantity controls for affected products.
-   * Expects event.detail.changedIds array of ids that changed.
-   * In new architecture we translate it to eventBus point-sync.
-   *
-   * @param {CustomEvent} e Event emitted from external/legacy cart layer
-   */
-  _onCartUpdated(e) {
-    try {
-      const detail = e && e.detail ? e.detail : {};
-      const changedIds = Array.isArray(detail.changedIds) ? detail.changedIds : [];
-      if (changedIds.length) {
-        this.eventBus.emit('cart:changed', { ids: changedIds, action: 'legacy:cart:updated' });
-        return;
-      }
-      this.eventBus.emit('cart:changed', { action: 'legacy:cart:updated' });
-    } catch (err) {
-      try { this.eventBus.emit('cart:changed', { action: 'legacy:cart:updated:error' }); } catch {}
-      // Legacy fallback
-      this._syncAllCardsControls();
     }
   }
 
@@ -364,7 +386,8 @@ export class ShopMatic {
    */
   openProductPage(product, block) {
     this.foxEngine.loadTemplates();
-    location.hash = '#product/' + product;
+    if (this.router && typeof this.router.toProduct === 'function') this.router.toProduct(product);
+    else location.hash = '#product/' + product;
     this.productPage.render(product, block);
   }
 
@@ -378,8 +401,6 @@ export class ShopMatic {
       this.notifications.show('Невозможно добавить: нет доступного остатка.', {
         duration: this.opts.notificationDuration
       });
-      // Legacy fallback (kept)
-      this._syncAllCardsControls();
       return false;
     }
 
@@ -410,9 +431,26 @@ export class ShopMatic {
     this.catalog.view.updateCardByName(id);
   }
 
-  async loadCatalog(brand = "", category = "") {
-    await this.catalog.loadCatalog({ request: { brand: brand, category: category } });
+
+
+/**
+ * Load catalog.
+ * Backward-compatible overload:
+ * - loadCatalog(argsObject) forwards directly to Catalog.loadCatalog(...)
+ * - loadCatalog(brand, category) builds the legacy request object
+ */
+async loadCatalog(arg1 = "", arg2 = "") {
+  // New signature: loadCatalog(argsObject)
+  if (arg1 && typeof arg1 === "object") {
+    return this.catalog.loadCatalog(arg1);
   }
+
+  // Legacy signature: loadCatalog(brand, category)
+  const brand = (arg1 ?? "").toString();
+  const category = (arg2 ?? "").toString();
+  return this.catalog.loadCatalog({ request: { brand, category } });
+}
+
 
   removeWishlistItem(id) {
     if (this.wishlistModule && typeof this.wishlistModule.removeFromFav === 'function') {
@@ -445,9 +483,6 @@ export class ShopMatic {
    * Wrapper around Catalog.loadCatalog for compatibility with legacy code.
    * Delegates to the Catalog instance.
    */
-  async loadCatalog(args = {}) {
-    return this.catalog.loadCatalog(args);
-  }
 
   /**
    * Wrapper around Catalog.applyFilters for compatibility with legacy code.

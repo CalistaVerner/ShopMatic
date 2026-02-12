@@ -77,7 +77,7 @@ export class VerticalCardRenderer extends BaseRenderer {
           <div class="card__short">${esc(data.short)}</div>
           <div class="card__specs">${data.specsHtml || ''}</div>
           <div class="card__controls">
-            <button data-role="buy" class="btn">В корзину</button>
+            <button data-role="buy" class="sm-btn sm-btn--primary">В корзину</button>
           </div>
         </div>
       </article>`;

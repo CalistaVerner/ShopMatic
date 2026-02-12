@@ -153,15 +153,15 @@ export class RecipientAddressController {
         <h2 class="form-title">${cfg.title}</h2>
         <div id="${this._uid}-${type}-list" class="item-list ${type}-list" tabindex="0"></div>
         <div class="form-actions">
-          <button id="${this._uid}-add${capType}Btn" class="btn btn-primary" type="button">Добавить ${cfg.addLabel}</button>
+          <button id="${this._uid}-add${capType}Btn" class="sm-btn sm-btn--primary" type="button">Добавить ${cfg.addLabel}</button>
         </div>
         <div id="${this._uid}-${type}-form" class="form-embedded" aria-hidden="true">
           <h3 id="${this._uid}-${type}-form-title" class="form-subtitle">Добавить ${cfg.addLabel}</h3>
           ${fieldsHtml}
           <div id="${this._uid}-${type}-error" class="ui-error" aria-live="polite"></div>
           <div class="form-actions row">
-            <button id="${this._uid}-save${capType}Btn" class="btn btn-primary" type="button">Сохранить</button>
-            <button id="${this._uid}-cancel${capType}Btn" class="btn btn-secondary" type="button">Отмена</button>
+            <button id="${this._uid}-save${capType}Btn" class="sm-btn sm-btn--primary" type="button">Сохранить</button>
+            <button id="${this._uid}-cancel${capType}Btn" class="sm-btn sm-btn--secondary" type="button">Отмена</button>
           </div>
         </div>
       </div>

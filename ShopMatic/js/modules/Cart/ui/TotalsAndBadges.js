@@ -48,7 +48,7 @@ export class TotalsAndBadges {
         headerCartNum.setAttribute('aria-hidden', totalCount > 0 ? 'false' : 'true');
       }
 
-      if (shopMatic.deviceUtil.isMobile) {
+      if (this.shopMatic.foxEngine.deviceUtil.isMobile) {
         if (mobileCartNum) {
           mobileCartNum.textContent = String(totalCount);
           mobileCartNum.style.display = totalCount > 0 ? 'inline-flex' : 'none';

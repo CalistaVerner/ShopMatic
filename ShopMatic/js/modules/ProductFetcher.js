@@ -69,7 +69,8 @@ export class ProductFetcher extends ApiFetcher {
    */
   async fetchProducts(request = null) {
     const { payload } = this._buildRequest(this.endpoints.products, request);
-    const res = await this._safeCall(payload, 'JSON');
+    const cacheKey = 'products:list';
+    const res = await this._call(payload, 'JSON', { cacheKey, cacheTtlMs: 2500, retries: 1 });
     return this._extractArray(res);
   }
 
@@ -83,7 +84,8 @@ export class ProductFetcher extends ApiFetcher {
     if (!id && id !== 0) return null;
 
     const { payload } = this._buildRequest(this.endpoints.productById, { id });
-    const res = await this._safeCall(payload, 'JSON');
+    const cacheKey = 'products:list';
+    const res = await this._call(payload, 'JSON', { cacheKey, cacheTtlMs: 2500, retries: 1 });
 
     const items = this._extractArray(res, [
       'product',
@@ -114,7 +116,8 @@ export class ProductFetcher extends ApiFetcher {
     }
 
     const { payload } = this._buildRequest(endpointName);
-    const res = await this._safeCall(payload, 'JSON');
+    const cacheKey = 'products:list';
+    const res = await this._call(payload, 'JSON', { cacheKey, cacheTtlMs: 2500, retries: 1 });
     return this._extractArray(res, [entity, 'data', 'items', 'list']);
   }
 
@@ -137,7 +140,8 @@ export class ProductFetcher extends ApiFetcher {
     }
 
     const { payload } = this._buildRequest(endpointName, { id });
-    const res = await this._safeCall(payload, 'JSON');
+    const cacheKey = 'products:list';
+    const res = await this._call(payload, 'JSON', { cacheKey, cacheTtlMs: 2500, retries: 1 });
     const arr = this._extractArray(res, [entity, 'data', 'items']);
 
     const target = String(id).trim();

@@ -57,6 +57,12 @@
   transition: transform .12s ease, background .18s ease, border-color .18s ease, opacity .18s ease, filter .18s ease;
 }
 
+.sm-btn {
+    border: 1px solid;
+    background: burlywood;
+    width: 30%;	
+}
+
 /* Primary */
 .btn-primary{
   background: var(--btn-primary-bg);
@@ -70,19 +76,36 @@
   border-color: rgba(255,255,255,.22);
 }
 
-.btn:hover {
-  background: #ffa552;
-  box-shadow:
-    0 0 6px rgba(255,140,0,0.55),
-    0 0 18px rgba(255,115,0,0.35);
+
+.btn-primary:hover {
+  background: var(--btn-primary-bg-hover);
+  box-shadow: 0 0 6px rgba(255,140,0,0.35), 0 0 18px rgba(255,115,0,0.18);
   transform: translateY(-1px);
 }
 
-.btn:active {
+.btn-primary:active {
   transform: translateY(0);
-  background: #e86400;
-  box-shadow: 0 0 4px rgba(255,115,0,0.45);
+  background: var(--btn-primary-bg);
+  filter: brightness(0.96);
+  box-shadow: 0 0 4px rgba(255,115,0,0.22);
 }
+
+.btn-secondary:hover {
+  background: var(--btn-secondary-bg-hover);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+  filter: brightness(0.98);
+}
+
+.btn:focus-visible {
+  outline: 2px solid rgba(255,128,0,0.55);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(255,128,0,0.25);
+}
+
 
 .btn[disabled],
 .fav-btn[disabled] {

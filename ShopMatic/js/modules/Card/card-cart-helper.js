@@ -320,7 +320,10 @@ _restoreBaseBuyButton(cardEl) {
       specs: product.specs ?? product.description ?? ''
     };
 
-    location.hash = '#page/checkout';
+    const shop = ctx?.shop || this.card.shopMatic?.shop || this.card.shopMatic;
+    if (shop?.router?.toPage) shop.router.toPage('checkout');
+    else if (shop?.router?.go) shop.router.go('#page/checkout');
+    else location.hash = '#page/checkout';
 
     setTimeout(() => {
       const shop = ctx?.shop || this.card.shopMatic?.shop || this.card.shopMatic;
@@ -354,6 +357,9 @@ _restoreBaseBuyButton(cardEl) {
       return;
     }
     try {
+      const sm = this.card?.shopMatic;
+      if (sm?.router?.toPage) return sm.router.toPage('cart');
+      if (sm?.router?.go) return sm.router.go('#page/cart');
       if (location.hash !== '#page/cart') location.hash = '#page/cart';
       else window.dispatchEvent(new HashChangeEvent('hashchange'));
     } catch {}

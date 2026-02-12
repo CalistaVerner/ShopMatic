@@ -10,9 +10,10 @@ export function escapeHtml(s) {
 
 export function debounce(fn, ms = 200) {
   let t = null;
-  return (...args) => {
+  return function (...args) {
     clearTimeout(t);
-    t = setTimeout(() => fn.apply(this, args), ms);
+    const ctx = this;
+    t = setTimeout(() => fn.apply(ctx, args), ms);
   };
 }
 
@@ -66,9 +67,11 @@ export function deepEqual(a, b) {
  * @returns {string} Отформатированная строка с ценой.
  */
 export function formatPrice(amount, currency = 'RUB') {
-  // Убедимся, что сумма является числом
-  if (isNaN(amount) || amount === null) {
-    throw new Error('Invalid amount');
+  // Tolerant: callers often pass strings/null; do not throw in UI code.
+  const num = Number(amount ?? 0);
+  if (!Number.isFinite(num)) {
+    // keep UI stable even with bad data
+    return '';
   }
 
   // Определим настройки для валюты
@@ -81,7 +84,7 @@ export function formatPrice(amount, currency = 'RUB') {
 
   // Форматируем сумму с использованием Intl.NumberFormat
   const formatter = new Intl.NumberFormat('ru-RU', options);
-  return formatter.format(amount);
+  return formatter.format(num);
 }
 
 /**

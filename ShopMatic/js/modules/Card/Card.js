@@ -4,6 +4,8 @@ import { CardCartHelper } from './card-cart-helper.js';
 import { CardDelegationManager } from './card-delegation-manager.js';
 import { VerticalCardRenderer } from "./Renderers/VerticalCardRenderer.js";
 import { HorizontalCardRenderer } from "./Renderers/HorizontalCardRenderer.js";
+import { Events } from '../Events.js';
+import { extractIds, unwrapEvent } from '../EventContracts.js';
 
 /**
  * Card — Card factory + registry + reactive syncing via event bus + premium batching.
@@ -66,21 +68,25 @@ export class Card {
     const bus = this.shopMatic?.eventBus;
     if (!bus || typeof bus.on !== 'function') return;
 
-    const u1 = bus.on('cart:changed', (p) => this._scheduleFromPayload(p));
-    const u2 = bus.on('favorites:changed', (p) => this._scheduleFromPayload(p));
-    const u3 = bus.on('cards:sync', (p) => this._scheduleFromPayload(p));
+    const u1 = bus.on(Events.DOMAIN_CART_CHANGED, (p) => this._scheduleFromPayload(p, Events.DOMAIN_CART_CHANGED));
+    const u2 = bus.on(Events.UI_CART_UPDATED, (p) => this._scheduleFromPayload(p, Events.UI_CART_UPDATED));
+    const u3 = bus.on(Events.DOMAIN_FAVORITES_CHANGED, (p) => this._scheduleFromPayload(p, Events.DOMAIN_FAVORITES_CHANGED));
+    const u4 = bus.on(Events.UI_CARDS_SYNC_REQUEST, (p) => this._scheduleFromPayload(p, Events.UI_CARDS_SYNC_REQUEST));
 
     this._unsubBus = () => {
       try { u1?.(); } catch {}
       try { u2?.(); } catch {}
       try { u3?.(); } catch {}
+      try { u4?.(); } catch {}
     };
   }
 
-  _scheduleFromPayload(p) {
-    const ids = normalizeIdsPayload(p);
+  _scheduleFromPayload(payload, fallbackType = '') {
+    // Yandex-standard: envelope preferred. Raw payloads are still accepted.
+    const { data } = unwrapEvent(payload, fallbackType);
+    const ids = extractIds(payload);
     if (ids?.length) this._scheduleSyncIds(ids);
-    else if (p?.id) this._scheduleSyncId(p.id);
+    else if (data?.id) this._scheduleSyncId(data.id);
   }
 
   destroy() {
@@ -491,14 +497,6 @@ function applyStateToDom(cardFactory, el, state) {
 
   try { cardFactory._applyFavState(el, state.isFav); } catch {}
   try { cardFactory._cart.syncCardControlsState(el); } catch {}
-}
-
-function normalizeIdsPayload(p) {
-  if (!p) return null;
-  const ids = p.ids || p.items || p.changedIds;
-  if (!ids) return null;
-  if (Array.isArray(ids)) return ids.map((x) => String(x).trim()).filter(Boolean);
-  return null;
 }
 
 function cssEscape(s) {

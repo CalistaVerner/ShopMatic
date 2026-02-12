@@ -483,7 +483,7 @@ export class ProductPageView {
           <div class="card__short small text-muted">${escapeHtml(data.short)}</div>
           <div class="card__specs small">${specs}</div>
           <div class="card__controls mt-2">
-            <button data-role="buy" class="btn btn-sm btn-outline-primary">
+            <button data-role="buy" class="sm-btn sm-btn--sm sm-btn--outline">
               ${this.ctx.messages.addToCartButton}
             </button>
           </div>

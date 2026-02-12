@@ -18,6 +18,46 @@ export class CatalogView {
     this._cardById = new Map();
   }
 
+
+
+showLoading(count = 8) {
+  if (!this.root) return;
+  // Lightweight skeletons (no layout jump)
+  const n = Math.max(1, Math.min(24, Number(count) || 8));
+  this.root.classList.add('sm-loading');
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement('div');
+    el.className = 'sm-skel sm-skel-card';
+    el.innerHTML = `
+      <div class="sm-skel__media"></div>
+      <div class="sm-skel__body">
+        <div class="sm-skel__line sm-skel__line--lg"></div>
+        <div class="sm-skel__line"></div>
+        <div class="sm-skel__line sm-skel__line--sm"></div>
+        <div class="sm-skel__row">
+          <div class="sm-skel__pill"></div>
+          <div class="sm-skel__btn"></div>
+        </div>
+      </div>`;
+    frag.appendChild(el);
+  }
+  this.root.innerHTML = '';
+  this.root.appendChild(frag);
+  if (this.productsCountEl) this.productsCountEl.textContent = '…';
+}
+
+hideLoading() {
+  if (!this.root) return;
+  this.root.classList.remove('sm-loading');
+}
+
+async renderEmpty({ message = null, hint = null } = {}) {
+  // keep compatibility with controller: renderEmpty({message,hint})
+  const msg = message || this._msg('CATALOG_NO_RESULTS', 'По текущим опциям нет товаров');
+  this.renderNoResults(msg, hint);
+}
+
   async render(list = []) {
     const arr = Array.isArray(list) ? list : [];
     if (!this.root) return;
@@ -114,7 +154,7 @@ export class CatalogView {
     this._rebuildCardIndex();
   }
 
-  renderNoResults(message = null) {
+  renderNoResults(message = null, hint = null) {
     if (!this.root) return;
 
     this._cardById.clear();
@@ -137,7 +177,7 @@ export class CatalogView {
 
     const hintEl = document.createElement('div');
     hintEl.className = 'catalog-empty__hint';
-    hintEl.textContent = this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
+    hintEl.textContent = hint || this._msg('CATALOG_NO_RESULTS_HINT', 'Попробуйте изменить фильтры или сбросить поиск.');
 
     wrap.append(icon, textEl, hintEl);
 

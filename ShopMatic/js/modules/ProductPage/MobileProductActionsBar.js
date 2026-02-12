@@ -285,8 +285,8 @@ export class MobileProductActionsBar {
       wrap.innerHTML = `
         <section class="mobileBottomBlock" id="${this.opts.blockId}">
           <div class="mobileProductActions__inner">
-		    <button type="button" class="btn btn-primary" data-role="mp-buy">Купить сейчас</button>
-            <button type="button" class="btn btn-secondary" data-role="mp-add">В корзину</button>  
+		    <button type="button" class="sm-btn sm-btn--primary" data-role="mp-buy">Купить сейчас</button>
+            <button type="button" class="sm-btn sm-btn--secondary" data-role="mp-add">В корзину</button>  
           </div>
         </section>
       `;
@@ -397,9 +397,14 @@ export class MobileProductActionsBar {
         return;
       }
 
-      // fallback: hash
-      if (location.hash !== '#page/checkout') location.hash = '#page/checkout';
-      else window.dispatchEvent(new HashChangeEvent('hashchange'));
+      // fallback: router policy
+      const sm = this.ctx.shopMatic;
+      if (sm?.router?.toPage) sm.router.toPage('checkout');
+      else if (sm?.router?.go) sm.router.go('#page/checkout');
+      else {
+        if (location.hash !== '#page/checkout') location.hash = '#page/checkout';
+        else window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
     } catch (e) {
       this._err('actionBuyNow failed', e, { id });
     }

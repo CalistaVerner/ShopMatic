@@ -1,5 +1,6 @@
 // Catalog/FilterController-v3.js
 import { debounce } from '../utils.js';
+import { UrlState } from '../Utils/UrlState.js';
 
 /**
  * FilterController — universal, declarative filter controller (prod-ready).
@@ -14,7 +15,10 @@ export class FilterController {
     searchBtnEl,
     resetBtnEl,
     productsCountEl,
-    debounceMs = 300
+    debounceMs = 300,
+    urlSync = true,
+    urlPrefix = 'sm',
+    urlUseHash = false
   } = {}) {
     this.productsCountEl = productsCountEl || null;
     this.searchBtnEl = searchBtnEl || null;
@@ -22,6 +26,10 @@ export class FilterController {
 
     this._onChange = null;
     this._debounceMs = debounceMs;
+
+    this._urlSync = !!urlSync;
+    this._urlPrefix = urlPrefix || 'sm';
+    this._urlUseHash = !!urlUseHash;
 
     this._fieldsConfig = [
       this._makeTextField('search', searchEl),
@@ -31,6 +39,7 @@ export class FilterController {
     ].filter(Boolean);
 
     this._state = this._buildInitialState();
+    this._applyUrlStateIfAny();
     this._fieldHandlers = new Map();
 
     this._boundReset = this._handleReset.bind(this);
@@ -136,7 +145,23 @@ export class FilterController {
   }
 
   _emitChange() {
+    if (this._urlSync) {
+      UrlState.write(this._state, { prefix: this._urlPrefix, useHash: this._urlUseHash });
+    }
     if (this._onChange) this._onChange(this.getState());
+  }
+
+  _applyUrlStateIfAny() {
+    if (!this._urlSync) return;
+    const fromUrl = UrlState.read({ prefix: this._urlPrefix, useHash: this._urlUseHash });
+    if (!fromUrl || !Object.keys(fromUrl).length) return;
+    // Only known keys
+    const safe = {};
+    for (const cfg of this._fieldsConfig) {
+      const k = cfg.key;
+      if (Object.prototype.hasOwnProperty.call(fromUrl, k)) safe[k] = fromUrl[k];
+    }
+    this._state = { ...this._state, ...safe };
   }
 
   _syncFromControls() {

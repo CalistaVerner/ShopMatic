@@ -217,6 +217,66 @@ export class ProductService {
     }
   }
 
+  
+  /**
+   * Ensure base product list is loaded (best-effort).
+   * @returns {Promise<boolean>}
+   */
+  async ensureWarm() {
+    try {
+      const existing = this.getProducts({ clone: false }) || [];
+      if (Array.isArray(existing) && existing.length) return true;
+      await this.loadProductsSimple({ force: false });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Ensures that products for given ids exist in cache.
+   * Best-effort: does not throw.
+   *
+   * @param {string[]} ids
+   * @param {{concurrency?: number}} [opts]
+   * @returns {Promise<void>}
+   */
+  async ensureProductsByIds(ids = [], opts = {}) {
+    const list = Array.isArray(ids) ? ids : [];
+    const uniq = [];
+    const seen = new Set();
+
+    for (const v of list) {
+      const sid = this._normalizeId(v);
+      if (!sid || seen.has(sid)) continue;
+      seen.add(sid);
+      // already in cache
+      if (this.findById(sid)) continue;
+      uniq.push(sid);
+    }
+
+    if (!uniq.length) return;
+
+    const concurrency = Math.max(1, Math.min(8, Number(opts?.concurrency) || 4));
+    let idx = 0;
+
+    const worker = async () => {
+      while (idx < uniq.length) {
+        const cur = uniq[idx++];
+        try {
+          await this.fetchById(cur);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    const workers = [];
+    for (let i = 0; i < concurrency; i++) workers.push(worker());
+    await Promise.allSettled(workers);
+  }
+
+
   async setProducts(rawProducts = []) {
     const arr = Array.isArray(rawProducts) ? rawProducts : [];
     try {

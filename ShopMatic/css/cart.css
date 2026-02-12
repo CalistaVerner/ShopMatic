@@ -4,97 +4,36 @@ Author: Calista Verner
  Part of Shopmatic Version: 1.0.4
  Date: 2025-12-01 
  ============================================================================ */
- :root {
-    /* Surfaces & backgrounds */
-     --bg-main: #ffffff;
-    /* page background (light, warm) */
-     --bg-surface: #FFFFFF;
-    /* main surface / card background */
-     --bg-secondary: #F6F3EE;
-    /* secondary surface (cards) */
-     --bg-tertiary: #F4F3F0;
-    /* subtle tertiary surface */
-    /* Typography */
-     --font-sans: "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui;
-     --text-primary: #222222;
-     --text-secondary: #555555;
-     --text-muted: #777777;
-    /* Borders & shadows */
-     --border: #E6E6E6;
-     --border-light: #E5E5E5;
-     --border-muted: #DCDCDC;
-     --shadow: 0 4px 10px rgba(15,23,42,0.06);
-     --shadow-soft: 0 4px 12px rgba(0,0,0,0.05);
-    /* Colors */
-     --primary: #007a4d;
-    /* primary (green) */
-     --primary-700: #00643e;
-     --accent: #FF7A2D;
-    /* CTA (orange) */
-     --accent-700: #E66312;
-     --danger: #D32F2F;
-     --discount-color: #D32F2F;
-    /* Utility tokens */
-     --control-primary: var(--primary);
-     --control-primary-hover: var(--primary-700);
-     --radius: 12px;
-    /* Promo tokens */
-     --promo-bg: #ffffff;
-     --promo-border: #E0E0E0;
-     --promo-border-focus: #007b55;
-     --promo-text: var(--text-primary);
-     --promo-placeholder: #999999;
-     --promo-button-bg: var(--control-primary);
-     --promo-button-hover: var(--control-primary-hover);
-     --promo-hint-color: var(--text-muted);
-    /* Qty control tokens */
-     --qty-btn-size: 36px;
-     --qty-btn-radius: 8px;
-     --qty-btn-bg: transparent;
-     --qty-btn-color: var(--text-primary);
-     --qty-btn-disabled-bg: rgba(0,0,0,0.04);
-     --qty-btn-disabled-color: #9AA0A6;
-     --qty-btn-disabled-opacity: 0.56;
-     --qty-btn-transition: background .15s ease, color .15s ease, opacity .12s ease;
-     --qty-btn-focus-ring: 0 0 0 3px rgba(34,125,255,0.12);
-     --specs-line-accent: rgba(49, 34, 12, 0.161);
-     --specs-font-size: 14px;
-     --specs-title-weight: 600;
-     --specs-radius: 6px;
-}
-/* Reduce motion preference */
- @media (prefers-reduced-motion: reduce) {
-     :root {
-         --qty-btn-transition: none;
-    }
-     * {
-         transition-duration: 0 !important;
-         animation-duration: 0 !important;
-         animation-iteration-count: 1 !important;
-    }
-}
+
 /* ========================================================================== CART ITEM ========================================================================== */
  .cart-item {
-     background-color: var(--bg-secondary);
-     border-radius: 24px;
-     list-style: none;
-     padding: 12px 12px 0;
-     box-shadow: var(--shadow);
-     border: 1px solid var(--border);
-     transition: transform .18s ease, box-shadow .18s ease;
-     font-family: var(--font-sans);
-     color: var(--text-primary);
-     padding: 5px;
-     display: flex;
-     gap: 10px;
-     width: 100%;
-     align-items: stretch;
-     display: block;
-     position: relative;
+    border: 1px solid rgba(15, 23, 42, 0.16);
+    border-radius: 10px;
+    background-color: var(--bg-soft);
+    padding: 10px;
+    width: 100%;
+    display: flex;
+  list-style: none;
+
+  /* layout */
+  width: 100%;
+  position: relative;
+  display: block;
+  padding: 12px;
+
+  /* typography */
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+
+  /* interaction */
+  transition: transform .18s ease, box-shadow .18s ease;
 }
- .cart-item:hover {
-     transform: translateY(-3px);
+
+.cart-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(15,23,42,0.10);
 }
+
  .cart-item .include-checkbox-wrapper input[type=checkbox] {
      position: relative;
      left: 0;
@@ -656,3 +595,23 @@ font-weight: bolder;
  .cart-master-checkbox[data-state="mixed"]::after {
      transition: background 0.2s ease, opacity 0.2s ease;
 }
+
+/* Premium removal animation (JS drives transitions; class is a hook) */
+.sm-row-removing {
+  pointer-events: none;
+}
+
+/* ===== Cart skeleton rows (market-grade) ===== */
+.sm-skel-row { display:flex; gap:12px; align-items:flex-start; padding:12px; border-radius:12px; border:1px solid rgba(15,23,42,0.10); background: var(--bg-soft, #f6f7f8); margin-bottom:12px; }
+.sm-skel__thumb { width:84px; height:84px; border-radius:10px; background: rgba(15,23,42,0.08); flex: 0 0 auto; }
+.sm-skel__body { flex:1 1 auto; }
+.sm-skel__line { height:12px; border-radius:6px; background: rgba(15,23,42,0.08); margin-top:8px; }
+.sm-skel__line--lg { height:16px; width:72%; }
+.sm-skel__btnrow { display:flex; gap:10px; margin-top:12px; }
+.sm-skel__pill { height:30px; width:96px; border-radius:16px; background: rgba(15,23,42,0.08); }
+.sm-skel-row, .sm-skel__thumb, .sm-skel__line, .sm-skel__pill {
+  background-image: linear-gradient(90deg, rgba(15,23,42,0.06) 0%, rgba(15,23,42,0.12) 50%, rgba(15,23,42,0.06) 100%);
+  background-size: 200% 100%;
+  animation: sm-shimmer 1.1s ease-in-out infinite;
+}
+@keyframes sm-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

@@ -5,7 +5,7 @@
  * built-in progress bar.
  *
  * Author: Calista Verner (OO-refactor by assistant)
- * Version: 2.0.0 (API-compatible with 1.4.0)
+ * Version: 2.1.0 (API-compatible with 1.4.0)
  * License: MIT
  */
 
@@ -16,21 +16,7 @@ const ICONS_BY_TYPE = Object.freeze({
   info:    'fa-solid fa-info'
 });
 
-/**
- * Один инстанс конкретного уведомления:
- * - создаёт DOM
- * - управляет таймером и прогресс-баром
- * - обрабатывает hover/keyboard
- * - анимирует появление/исчезновение
- */
 class NotificationInstance {
-  /**
-   * @param {Notifications} manager
-   * @param {string} id
-   * @param {string|Node} message
-   * @param {Object} cfg   итоговый конфиг (глобальный + локальный)
-   * @param {HTMLElement} container
-   */
   constructor(manager, id, message, cfg, container) {
     this.manager   = manager;
     this.id        = id;
@@ -46,7 +32,15 @@ class NotificationInstance {
     this.dismissed   = false;
     this.createdAt   = Date.now();
 
-    /** promise, который резолвится при закрытии уведомления */
+    this._swipe = {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      lastX: 0,
+      dragging: false,
+      axis: null
+    };
+
     this.promise = new Promise((resolve) => {
       this._resolve = resolve;
     });
@@ -56,20 +50,12 @@ class NotificationInstance {
     this._mount();
   }
 
-  /* =============== ПУБЛИЧНОЕ API ИНСТАНСА =============== */
-
-  /**
-   * Программно закрыть уведомление.
-   * @param {string} reason
-   */
   dismiss(reason = this.manager._msg('REASON_MANUAL')) {
     if (this.dismissed) return;
     this.dismissed = true;
     this._clearTimer();
     this._animateOut(reason);
   }
-
-  /* ===================== ВНУТРЕННЕЕ ====================== */
 
   _buildNode() {
     const { cfg, manager, id } = this;
@@ -80,23 +66,19 @@ class NotificationInstance {
     note.dataset.notificationId = id;
     note.tabIndex = 0;
     note.style.pointerEvents = 'auto';
+    note.style.touchAction = cfg.swipeToDismiss ? 'pan-y' : '';
 
-    const isAssertive = cfg.type === 'error' || cfg.ariaLive === 'assertive';
-    note.setAttribute('role', isAssertive ? 'alert' : 'status');
-    note.setAttribute('aria-live', cfg.ariaLive);
-    note.setAttribute('aria-atomic', 'true');
-
-    // Иконка
-    const typeKey   = (cfg.type && String(cfg.type)) ? String(cfg.type) : 'info';
+    const typeKey   = cfg.type || 'info';
     const iconClass = ICONS_BY_TYPE[typeKey] || ICONS_BY_TYPE.info;
-    const iconEl    = document.createElement('i');
+
+    const iconEl = document.createElement('i');
     iconEl.className =
       `${iconClass} ${cfg.notificationClass}__icon notif-icon notif-icon--${typeKey}`;
     iconEl.setAttribute('aria-hidden', 'true');
 
-    // Контент
     const content = document.createElement('div');
     content.className = `${cfg.notificationClass}__content`;
+
     if (this.message instanceof Node) {
       content.appendChild(this.message);
     } else if (cfg.allowHtml) {
@@ -108,7 +90,6 @@ class NotificationInstance {
     note.appendChild(iconEl);
     note.appendChild(content);
 
-    // Кнопка закрытия
     if (cfg.dismissible) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -122,7 +103,6 @@ class NotificationInstance {
       note.appendChild(btn);
     }
 
-    // Прогресс-бар
     if (cfg.showProgressBar) {
       const progress = document.createElement('div');
       progress.className = `${cfg.notificationClass}__progress`;
@@ -134,32 +114,112 @@ class NotificationInstance {
   }
 
   _wireInteractions() {
-    const { node, cfg, manager } = this;
+    const { node, cfg } = this;
     if (!node) return;
 
-    // Hover pause / resume
     if (cfg.pauseOnHover) {
       node.addEventListener('mouseenter', () => this._pauseTimer());
       node.addEventListener('mouseleave', () => this._resumeTimer());
     }
 
-    // Escape для закрытия
     node.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' || ev.key === 'Esc') {
+      if (ev.key === 'Escape') {
         ev.preventDefault();
-        this.dismiss(manager._msg('REASON_KEYBOARD'));
+        this.dismiss(this.manager._msg('REASON_KEYBOARD'));
       }
     });
+
+    if (cfg.swipeToDismiss) this._wireSwipe();
+  }
+
+  _wireSwipe() {
+    const node = this.node;
+    const threshold = this.cfg.swipeThresholdPx || 64;
+
+    const reset = () => {
+      node.style.transition = '';
+      node.style.transform = '';
+      node.style.opacity = '';
+    };
+
+    node.addEventListener('pointerdown', (ev) => {
+      if (this.dismissed || !this.cfg.dismissible) return;
+      if (ev.pointerType === 'mouse' && !this.cfg.swipeAllowMouse) return;
+
+      this._swipe.active = true;
+      this._swipe.pointerId = ev.pointerId;
+      this._swipe.startX = ev.clientX;
+      this._swipe.lastX = ev.clientX;
+      this._swipe.dragging = false;
+      this._swipe.axis = null;
+
+      try { node.setPointerCapture(ev.pointerId); } catch {}
+    });
+
+    node.addEventListener('pointermove', (ev) => {
+      if (!this._swipe.active || ev.pointerId !== this._swipe.pointerId) return;
+
+      const dx = ev.clientX - this._swipe.startX;
+      this._swipe.lastX = ev.clientX;
+
+      if (!this._swipe.axis) {
+        this._swipe.axis = 'x';
+        this._pauseTimer();
+      }
+
+      this._swipe.dragging = true;
+
+      node.style.transition = 'none';
+      node.style.transform = `translateX(${dx}px)`;
+      node.style.opacity = String(Math.max(0.4, 1 - Math.abs(dx) / 200));
+
+      ev.preventDefault();
+    });
+
+    const finish = (ev) => {
+      if (!this._swipe.active || ev.pointerId !== this._swipe.pointerId) return;
+
+      const dx = this._swipe.lastX - this._swipe.startX;
+      const abs = Math.abs(dx);
+
+      this._swipe.active = false;
+      try { node.releasePointerCapture(ev.pointerId); } catch {}
+
+      if (!this._swipe.dragging) {
+        this._resumeTimer();
+        return;
+      }
+
+      if (abs >= threshold) {
+        const dir = dx >= 0 ? 1 : -1;
+        node.style.transition = 'transform 180ms ease, opacity 180ms ease';
+        node.style.transform = `translateX(${dir * (window.innerWidth || 600)}px)`;
+        node.style.opacity = '0';
+
+        setTimeout(() => {
+          this.dismiss(this.manager._msg('REASON_SWIPE'));
+        }, 180);
+
+        return;
+      }
+
+      node.style.transition = 'transform 180ms ease, opacity 180ms ease';
+      node.style.transform = 'translateX(0)';
+      node.style.opacity = '1';
+
+      setTimeout(reset, 200);
+      this._resumeTimer();
+    };
+
+    node.addEventListener('pointerup', finish);
+    node.addEventListener('pointercancel', finish);
   }
 
   _mount() {
     const { node, container } = this;
-    if (!node || !container) return;
-
     node.classList.add('is-entering');
     container.appendChild(node);
 
-    // Запуск enter-анимации + прогресс-бара
     requestAnimationFrame(() => {
       node.classList.remove('is-entering');
       node.classList.add('is-visible');
@@ -177,7 +237,7 @@ class NotificationInstance {
   _startTimer(duration) {
     this._clearTimer();
     if (duration <= 0) return;
-    this.startTs   = Date.now();
+    this.startTs = Date.now();
     this.remainingMs = duration;
     this.timeoutId = setTimeout(() => {
       this.dismiss(this.manager._msg('REASON_TIMEOUT'));
@@ -192,40 +252,20 @@ class NotificationInstance {
   }
 
   _pauseTimer() {
-    if (!this.cfg.pauseOnHover || !this.timeoutId) return;
+    if (!this.timeoutId) return;
     const elapsed = Date.now() - this.startTs;
     this.remainingMs = Math.max(0, this.remainingMs - elapsed);
     this._clearTimer();
-
-    // "заморозить" прогресс-бар
-    if (this.progressEl) {
-      const parent = this.progressEl.parentElement;
-      const parentWidth = parent ? parent.clientWidth : 0;
-      const currentWidth = this.progressEl.getBoundingClientRect().width;
-      const pct = parentWidth ? (currentWidth / parentWidth) * 100 : 0;
-      this.progressEl.style.transition = 'none';
-      this.progressEl.style.width = `${pct}%`;
-    }
   }
 
   _resumeTimer() {
-    if (!this.cfg.pauseOnHover || this.remainingMs <= 0) return;
-    this._startTimer(this.remainingMs);
-
-    // продолжить анимацию прогресс-бара
-    if (this.progressEl) {
-      // возможно контейнер изменился
-      const parent = this.progressEl.parentElement;
-      const _parentWidth = parent ? parent.clientWidth : 0;
-      this.progressEl.style.transition = `width ${this.remainingMs}ms linear`;
-      this.progressEl.style.width = '0%';
+    if (this.remainingMs > 0) {
+      this._startTimer(this.remainingMs);
     }
   }
 
   _startProgressBar() {
-    if (!this.progressEl) return;
     const bar = this.progressEl;
-    // стартуем c 100% без анимации, затем анимируем до 0
     bar.style.transition = 'none';
     bar.style.width = '100%';
     requestAnimationFrame(() => {
@@ -236,36 +276,28 @@ class NotificationInstance {
 
   _animateOut(reason) {
     const node = this.node;
-    if (!node) return this._finalize(reason);
+
+    node.style.transition = '';
+    node.style.transform = '';
+    node.style.opacity = '';
 
     node.classList.remove('is-visible');
     node.classList.add('is-leaving');
 
-    const REMOVE_DELAY = 320;
     setTimeout(() => {
       if (node.parentNode) {
         try { node.parentNode.removeChild(node); } catch {}
       }
       this._finalize(reason);
-    }, REMOVE_DELAY);
+    }, 300);
   }
 
   _finalize(reason) {
-    // уведомить manager
-    try {
-      this._resolve?.({ id: this.id, reason });
-    } catch {}
+    try { this._resolve?.({ id: this.id, reason }); } catch {}
     this.manager._onInstanceClosed(this, reason);
   }
 }
 
-/**
- * Менеджер уведомлений:
- * - управляет контейнером
- * - следит за maxVisible
- * - создаёт NotificationInstance
- * - даёт show()/clearAll()
- */
 export class Notifications {
   static UI_MESSAGES = Object.freeze({
     CLOSE_BUTTON_LABEL: 'Закрыть уведомление',
@@ -273,15 +305,12 @@ export class Notifications {
     REASON_MANUAL:   'manual',
     REASON_KEYBOARD: 'keyboard',
     REASON_CLEARED:  'cleared',
-    REASON_EVICTED:  'evicted'
+    REASON_EVICTED:  'evicted',
+    REASON_SWIPE:    'swipe'
   });
 
-  _msg(key, vars = {}) {
-    const pool = (this.constructor && this.constructor.UI_MESSAGES) || {};
-    const tpl = pool[key] ?? '';
-    return String(tpl).replace(/\{([^}]+)\}/g, (m, k) =>
-      Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m
-    );
+  _msg(key) {
+    return this.constructor.UI_MESSAGES[key] || '';
   }
 
   constructor(opts = {}) {
@@ -295,23 +324,17 @@ export class Notifications {
       containerClass: 'shop-notifications',
       notificationClass: 'shop-notification',
       ariaLive: 'polite',
-      showProgressBar: true
+      showProgressBar: true,
+      swipeToDismiss: true,
+      swipeThresholdPx: 64,
+      swipeAllowMouse: false
     }, opts);
 
-    /** @type {HTMLElement|null} */
     this._container = null;
     this._idCounter = 1;
-
-    /** @type {Map<string, NotificationInstance>} */
     this._instances = new Map();
   }
 
-  /**
-   * Показать уведомление.
-   * @param {string|Node} message
-   * @param {Object} opts
-   * @returns {{id:string, dismiss:(reason?:string)=>void, promise:Promise<{id,reason}>}|null}
-   */
   show(message, opts = {}) {
     if (!message && message !== 0) return null;
 
@@ -331,32 +354,17 @@ export class Notifications {
     };
   }
 
-  /**
-   * Закрыть все активные уведомления.
-   */
   clearAll() {
     const reason = this._msg('REASON_CLEARED');
-    // делаем копию, чтобы не ломать итерацию
-    const instances = Array.from(this._instances.values());
-    instances.forEach(inst => inst.dismiss(reason));
+    Array.from(this._instances.values())
+      .forEach(inst => inst.dismiss(reason));
   }
 
-  /* ==================== ВНУТРЕННЕЕ API ==================== */
-
-  /**
-   * Колбек от NotificationInstance при полном завершении.
-   * @param {NotificationInstance} instance
-   * @param {string} reason
-   * @internal
-   */
   _onInstanceClosed(instance, reason) {
     this._instances.delete(instance.id);
-
     const cfg = instance.cfg;
     if (typeof cfg.onClose === 'function') {
-      try {
-        cfg.onClose({ id: instance.id, reason });
-      } catch {}
+      try { cfg.onClose({ id: instance.id, reason }); } catch {}
     }
   }
 
@@ -365,39 +373,31 @@ export class Notifications {
 
     const cont = document.createElement('div');
     cont.className = cfg.containerClass || this.opts.containerClass;
+    cont.style.position = 'fixed';
 
-    // лёгкое использование position-настроек, если заданы числа
     const pos = cfg.position || this.opts.position;
-    cont.style.position = cont.style.position || 'fixed';
-    if (pos && typeof pos === 'object') {
-      ['top', 'right', 'bottom', 'left'].forEach((side) => {
-        if (pos[side] != null) {
-          const val = typeof pos[side] === 'number' ? `${pos[side]}px` : String(pos[side]);
-          cont.style[side] = val;
-        }
-      });
-    }
+    ['top', 'right', 'bottom', 'left'].forEach((side) => {
+      if (pos[side] != null) {
+        cont.style[side] =
+          typeof pos[side] === 'number' ? `${pos[side]}px` : String(pos[side]);
+      }
+    });
 
     document.body.appendChild(cont);
     this._container = cont;
     return cont;
   }
 
-  /**
-   * Обеспечить maxVisible: самые старые инстансы аккуратно выселяются.
-   */
   _enforceMaxVisible(maxVisible) {
     const max = Number(maxVisible) || 0;
     if (!max || this._instances.size < max) return;
 
-    const reasonEvicted = this._msg('REASON_EVICTED');
+    const reason = this._msg('REASON_EVICTED');
     const instances = Array.from(this._instances.values())
-      .sort((a, b) => a.createdAt - b.createdAt); // старые первыми
+      .sort((a, b) => a.createdAt - b.createdAt);
 
     const overflow = this._instances.size - (max - 1);
-    if (overflow <= 0) return;
-
-    const toEvict = instances.slice(0, overflow);
-    toEvict.forEach(inst => inst.dismiss(reasonEvicted));
+    instances.slice(0, overflow)
+      .forEach(inst => inst.dismiss(reason));
   }
 }

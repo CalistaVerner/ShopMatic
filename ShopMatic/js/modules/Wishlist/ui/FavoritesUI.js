@@ -1,3 +1,6 @@
+import { Events } from '../../Events.js';
+import { extractIds, makeEventEnvelope } from '../../EventContracts.js';
+
 /**
  * WishlistModule (class)
  * @author Calista Verner
@@ -69,7 +72,8 @@ export class FavoritesUI {
     this._refreshTimer = null;
     this._cartUpdateTimer = null;
     this._storageHandler = this._onStorageEvent.bind(this);
-    this._cartHandler = this._onCartUpdated.bind(this);
+    /** @type {(()=>void)|null} */
+    this._unsubBus = null;
     this._clearHandler = null;
     this._backHandler = null;
     this._gridClickHandler = null;
@@ -279,8 +283,6 @@ export class FavoritesUI {
       this.notify(this.config.ui.removeFailedRefresh, { type: 'error' });
       this.refresh(true);
     }
-	this.recalcCount();
-	this.removeFromFav(id);
   }
 
   /* ---------- availability refresh (cart updates) ---------- */
@@ -306,7 +308,26 @@ export class FavoritesUI {
     } catch (e) { this._error('storage listener error', e); this.refresh(true); }
   }
 
-  _onCartUpdated(/*ev*/) {
+  _onCartEvent(payload) {
+    // Wishlist page uses standard product cards, so we only need to request card point-sync.
+    // This keeps UI stable (no full rerender) and matches Yandex-like reactive behavior.
+    try {
+      const sm = this.foxEngine?.shopMatic;
+      const bus = sm?.eventBus;
+      if (!bus || typeof bus.emit !== 'function') return;
+
+      const ids = extractIds(payload) || [];
+      bus.emit(
+        Events.UI_CARDS_SYNC_REQUEST,
+        makeEventEnvelope(
+          Events.UI_CARDS_SYNC_REQUEST,
+          ids.length ? { ids, action: 'wishlist:cart:event' } : { action: 'wishlist:cart:event' },
+          { source: 'FavoritesUI' }
+        )
+      );
+    } catch (e) {
+      this._error('_onCartEvent failed', e);
+    }
   }
 
   /* ---------- render ---------- */
@@ -427,9 +448,19 @@ export class FavoritesUI {
       this.backBtn.addEventListener('click', this._backHandler);
     }
 
-    // storage & cart listeners
+    // storage listener
     window.addEventListener('storage', this._storageHandler);
-    window.addEventListener('cart:updated', this._cartHandler);
+
+    // Yandex-standard: subscribe to canonical bus updates (no legacy DOM events)
+    try {
+      const sm = this.foxEngine?.shopMatic;
+      const bus = sm?.eventBus;
+      if (bus && typeof bus.on === 'function') {
+        const u1 = bus.on(Events.DOMAIN_CART_CHANGED, (p) => this._onCartEvent(p));
+        const u2 = bus.on(Events.UI_CART_UPDATED, (p) => this._onCartEvent(p));
+        this._unsubBus = () => { try { u1?.(); } catch {} try { u2?.(); } catch {} };
+      }
+    } catch (_) {}
 
     // delegate remove button in grid (fallback cards)
     this._gridClickHandler = (ev) => {
@@ -460,7 +491,8 @@ export class FavoritesUI {
     this._destroyed = true;
     try {
       window.removeEventListener('storage', this._storageHandler);
-      window.removeEventListener('cart:updated', this._cartHandler);
+      try { this._unsubBus?.(); } catch {}
+      this._unsubBus = null;
       if (this.clearBtn && this._clearHandler) this.clearBtn.removeEventListener('click', this._clearHandler);
       if (this.backBtn && this._backHandler) this.backBtn.removeEventListener('click', this._backHandler);
       if (this.grid && this._gridClickHandler) this.grid.removeEventListener('click', this._gridClickHandler);
